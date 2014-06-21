@@ -12,21 +12,20 @@ type Client struct {
 
 	reg *Registry
 
-	serversPrefix string
+	providersPrefix string
 }
 
-func NewClient(b Backend, keyPrefix string) *Client {
-	keyPrefix = strings.TrimSuffix(keyPrefix, "/")
+func NewClient(b Backend) *Client {
 	return &Client{
-		backend:       b,
-		reg:           NewRegistry(b, "/registry"),
-		serversPrefix: "/servers",
+		backend:         b,
+		reg:             NewRegistry(b, "/registry"),
+		providersPrefix: "/providers",
 	}
 }
 
 // ListProviders returns a list of provider server URLs in the cluster.
 func (c *Client) ListProviders() ([]string, error) {
-	servers, err := c.backend.List(c.serversPrefix + "/")
+	servers, err := c.backend.List(c.providersPrefix + "/")
 	if err != nil {
 		return nil, err
 	}
@@ -44,18 +43,18 @@ func (c *Client) ListProviders() ([]string, error) {
 // AddProvider adds an server to the cluster, making it available to be assigned
 // data.
 func (c *Client) AddProvider(providerURL, dataURL string) error {
-	return c.backend.Set(c.serversPrefix+"/"+encodeURLForKey(providerURL), dataURL)
+	return c.backend.Set(c.providersPrefix+"/"+encodeURLForKey(providerURL), dataURL)
 }
 
 // ProviderDataURL gets the data URL corresponding to the provider (added with
 // AddProvider).
 func (c *Client) ProviderDataURL(providerURL string) (string, error) {
-	return c.backend.Get(c.serversPrefix + "/" + encodeURLForKey(providerURL))
+	return c.backend.Get(c.providersPrefix + "/" + encodeURLForKey(providerURL))
 }
 
-// RegisterKeysOnServer examines the keys provided by a server and adds them to
-// the central registry.
-func (c *Client) RegisterKeysOnServer(providerURL string) error {
+// RegisterKeysOnProvider examines the keys provided by a server and adds them
+// to the central registry.
+func (c *Client) RegisterKeysOnProvider(providerURL string) error {
 	pc, err := c.Provider(providerURL)
 	if err != nil {
 		return err
@@ -67,9 +66,7 @@ func (c *Client) RegisterKeysOnServer(providerURL string) error {
 	}
 
 	for k, ver := range kvs {
-		if !strings.HasPrefix(k, "/") {
-			k = "/" + k
-		}
+		k = slash(k)
 		err := c.reg.AddProvider(k, providerURL, ver)
 		if err != nil {
 			return err
@@ -84,6 +81,8 @@ func (c *Client) RegisterKeysOnServer(providerURL string) error {
 
 // DataURLVersions returns a map of registered data URLs (for key) to their version.
 func (c *Client) DataURLVersions(key string) (map[string]string, error) {
+	key = slash(key)
+
 	pvs, err := c.reg.ProviderVersions(key)
 	if err != nil {
 		return nil, err
@@ -113,6 +112,8 @@ func (c *Client) DataURLVersions(key string) (map[string]string, error) {
 //
 // TODO(sqs): add create param (to create nonexistent keys)
 func (c *Client) DataURL(key string) (*url.URL, error) {
+	key = slash(key)
+
 	dvs, err := c.DataURLVersions(key)
 	if err != nil {
 		return nil, err
@@ -136,6 +137,8 @@ func (c *Client) DataURL(key string) (*url.URL, error) {
 // TODO(sqs): add consistent param that ensures all servers are mutually up to
 // date?
 func (c *Client) DataTransport(key string, underlying http.RoundTripper) (http.RoundTripper, error) {
+	key = slash(key)
+
 	dvs, err := c.DataURLVersions(key)
 	if err != nil {
 		return nil, err
@@ -187,10 +190,14 @@ func (c *Client) Provider(providerURL string) (Provider, error) {
 
 // encodeURLForKey encodes a URL for use as a single HTTP path component.
 func encodeURLForKey(urlStr string) string {
-	return url.QueryEscape(urlStr)
+	return url.QueryEscape(strings.Replace(urlStr, "/", "%2F", -1))
 }
 
 // decodeURLForKey decodes a URL that was encoded with encodeURLForKey.
 func decodeURLForKey(encURLStr string) (string, error) {
-	return url.QueryUnescape(encURLStr)
+	urlStr, err := url.QueryUnescape(encURLStr)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(urlStr, "%2F", "/", -1), nil
 }

@@ -44,7 +44,7 @@ The global options are:
 	}
 
 	b := datad.NewEtcdBackend(*etcdKeyPrefix, etcd.NewClient([]string{*etcdEndpoint}))
-	c = datad.NewClient(b, "/")
+	c = datad.NewClient(b)
 
 	subcmd := flag.Arg(0)
 	extraArgs := flag.Args()[1:]
@@ -68,6 +68,7 @@ type subcommand struct {
 
 var subcommands = []subcommand{
 	{"list-providers", "list providers and their data URLs", listProvidersCmd},
+	{"register-keys-on-providers", "scan provider for existing data and register it", registerKeysOnProvidersCmd},
 	{"key", "print the provider/data URLs and versions for a key", keyCmd},
 	{"help", "show this help message", func([]string) { flag.Usage() }},
 }
@@ -138,5 +139,42 @@ The options are:
 	}
 	for dataURL, ver := range dvs {
 		fmt.Printf("%-10s %s\n", ver, dataURL)
+	}
+}
+
+func registerKeysOnProvidersCmd(args []string) {
+	fs := flag.NewFlagSet("key", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, `usage: datadctl register-keys-on-providers [options] PROVIDER...
+
+Registers keys for data that exists on provider. If no provider is specified,
+this operation is performed on all providers.
+
+The options are:
+`)
+		fs.PrintDefaults()
+		os.Exit(1)
+	}
+	fs.Parse(args)
+
+	providers := fs.Args()
+	if len(providers) == 0 {
+		var err error
+		providers, err = c.ListProviders()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if *verbose {
+		log.Printf("Registering keys on providers: %v", providers)
+	}
+
+	for _, p := range providers {
+		err := c.RegisterKeysOnProvider(p)
+		if err != nil {
+			log.Fatalf("%s: %s", p, err)
+		}
+		fmt.Printf("Registered keys on provider %s\n", p)
 	}
 }

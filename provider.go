@@ -46,18 +46,23 @@ func (h providerHandler) serveKeyVersion(w http.ResponseWriter, r *http.Request)
 	key := mux.Vars(r)["Key"]
 	version, err := h.KeyVersion(key)
 	if err != nil {
+		Log.Printf("serveKeyVersion Key=%q: error: %s", key, err)
 		http.Error(w, err.Error(), providerErrorHTTPStatus(err))
+		return
 	}
 
 	w.Header().Set("content-type", "text/plain")
 	w.Write([]byte(version))
+	Log.Printf("serveKeyVersion Key=%q: version=%q", key, version)
 }
 
 func (h providerHandler) serveKeyVersions(w http.ResponseWriter, r *http.Request) {
 	keyPrefix := mux.Vars(r)["KeyPrefix"]
 	kvs, err := h.KeyVersions(keyPrefix)
 	if err != nil {
+		Log.Printf("serveKeyVersions KeyPrefix=%q: error: %s", keyPrefix, err)
 		http.Error(w, err.Error(), providerErrorHTTPStatus(err))
+		return
 	}
 
 	w.Header().Set("content-type", "application/json")
@@ -65,6 +70,7 @@ func (h providerHandler) serveKeyVersions(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		log.Printf("datad: error writing HTTP response for key versions under prefix %q: %s", keyPrefix, err)
 	}
+	Log.Printf("serveKeyVersions KeyPrefix=%q: %v", keyPrefix, kvs)
 }
 
 func (h providerHandler) serveUpdate(w http.ResponseWriter, r *http.Request) {
@@ -72,16 +78,19 @@ func (h providerHandler) serveUpdate(w http.ResponseWriter, r *http.Request) {
 	version := r.URL.Query().Get("version")
 	err := h.Update(key, version)
 	if err != nil {
+		Log.Printf("serveUpdate Key=%q version=%q: error: %s", key, version, err)
 		http.Error(w, err.Error(), providerErrorHTTPStatus(err))
+		return
 	}
+	Log.Printf("serveUpdate Key=%q version=%q: OK", key, version)
 }
 
 func (h providerHandler) serveRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "datad provider %s\n", version)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "get key version:      GET /keys/KEY\n")
-	fmt.Fprintln(w, "list subkey versions: GET /keys/KEY-PREFIX/  (trailing slash required)\n")
-	fmt.Fprintln(w, "update key version:   PUT /keys/KEY?version=VERSION\n")
+	fmt.Fprintln(w, "get key version:      GET /keys/KEY")
+	fmt.Fprintln(w, "list subkey versions: GET /keys/KEY-PREFIX/  (trailing slash required)")
+	fmt.Fprintln(w, "update key version:   PUT /keys/KEY?version=VERSION")
 }
 
 func providerErrorHTTPStatus(err error) int {
@@ -101,10 +110,9 @@ const (
 // attach any handlers to the routes.
 func NewProviderRouter() *mux.Router {
 	m := mux.NewRouter()
-	m.StrictSlash(true)
-	m.Path("/keys{KeyPrefix:.*}/").Methods("GET").Name(keyVersionsRoute)
-	m.Path("/keys{Key:.+}").Methods("GET").Name(keyVersionRoute)
-	m.Path("/keys{Key:.+}").Methods("PUT").Queries("version", "").Name(updateRoute)
+	m.Path("/keys{Key:/(?:[^/]+/)*(?:[^/]+)}").Methods("GET").Name(keyVersionRoute)
+	m.Path("/keys{KeyPrefix:.*/}").Methods("GET").Name(keyVersionsRoute)
+	m.Path("/keys{Key:/.+}").Methods("PUT").Queries("version", "").Name(updateRoute)
 	return m
 }
 

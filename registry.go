@@ -16,11 +16,11 @@ func NewRegistry(b Backend, keyPrefix string) *Registry {
 }
 
 func (r *Registry) providersDir(key string) string {
-	key = strings.TrimSuffix(key, "/")
-	return r.keyPrefix + "/" + key + "/__$providers"
+	return r.keyPrefix + "/" + unslash(key) + "/__$providers"
 }
 
 func (r *Registry) ProviderVersions(key string) (map[string]string, error) {
+	key = unslash(key)
 	providers, err := r.backend.List(r.providersDir(key))
 	if err != nil {
 		return nil, err

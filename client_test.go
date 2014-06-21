@@ -6,7 +6,7 @@ import (
 )
 
 func TestClient_Providers(t *testing.T) {
-	c := NewClient(NewInMemoryBackend(nil), "/")
+	c := NewClient(NewInMemoryBackend(nil))
 
 	providers, err := c.ListProviders()
 	if err != nil {

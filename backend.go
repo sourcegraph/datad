@@ -65,12 +65,13 @@ type EtcdBackend struct {
 }
 
 func NewEtcdBackend(keyPrefix string, c *etcd.Client) Backend {
-	keyPrefix = strings.TrimSuffix(keyPrefix, "/")
+	keyPrefix = slash(strings.TrimSuffix(keyPrefix, "/"))
 	return &EtcdBackend{keyPrefix, c}
 }
 
 func (c *EtcdBackend) Get(key string) (string, error) {
-	resp, err := c.etcd.Get(c.keyPrefix+"/"+key, false, false)
+	key = c.fullKey(key)
+	resp, err := c.etcd.Get(key, false, false)
 	if isEtcdKeyNotExist(err) {
 		return "", ErrKeyNotExist
 	} else if err != nil {
@@ -80,7 +81,8 @@ func (c *EtcdBackend) Get(key string) (string, error) {
 }
 
 func (c *EtcdBackend) List(key string) ([]string, error) {
-	resp, err := c.etcd.Get(c.keyPrefix+"/"+key, true, true)
+	key = c.fullKey(key)
+	resp, err := c.etcd.Get(key, true, true)
 	if isEtcdKeyNotExist(err) {
 		return nil, nil
 	} else if err != nil {
@@ -89,14 +91,19 @@ func (c *EtcdBackend) List(key string) ([]string, error) {
 
 	subkeys := make([]string, len(resp.Node.Nodes))
 	for i, node := range resp.Node.Nodes {
-		subkeys[i] = strings.TrimPrefix(node.Key, c.keyPrefix+"/"+key+"/")
+		subkeys[i] = strings.TrimPrefix(node.Key, strings.TrimSuffix(key, "/")+"/")
 	}
 	return subkeys, nil
 }
 
 func (c *EtcdBackend) Set(key, value string) error {
-	_, err := c.etcd.Set(c.keyPrefix+"/"+key, value, 0)
+	key = c.fullKey(key)
+	_, err := c.etcd.Set(key, value, 0)
 	return err
+}
+
+func (c *EtcdBackend) fullKey(keyWithoutPrefix string) string {
+	return c.keyPrefix + "/" + unslash(keyWithoutPrefix)
 }
 
 func isEtcdKeyNotExist(err error) bool {

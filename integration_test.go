@@ -103,7 +103,7 @@ func TestIntegration(t *testing.T) {
 	providerServer := httptest.NewServer(NewProviderHandler(fakeServer))
 	defer providerServer.Close()
 
-	c := NewClient(NewInMemoryBackend(nil), "/")
+	c := NewClient(NewInMemoryBackend(nil))
 
 	// Add the server.
 	err := c.AddProvider(providerServer.URL, dataServer.URL)
@@ -122,19 +122,19 @@ func TestIntegration(t *testing.T) {
 
 	// Check that the key is unroutable because although it exists on the
 	// provider, the provider has not yet synced to the registry (we call
-	// RegisterKeysOnServer below).
+	// RegisterKeysOnProvider below).
 	_, err = c.DataURL("/alice")
 	if err != ErrNoProviderForKey {
 		t.Error(err)
 	}
 
 	// Register the server's existing data.
-	err = c.RegisterKeysOnServer(providerServer.URL)
+	err = c.RegisterKeysOnProvider(providerServer.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// After calling RegisterKeysOnServer, the key should be routable.
+	// After calling RegisterKeysOnProvider, the key should be routable.
 	dataURL, err := c.DataURL("/alice")
 	if err != nil {
 		t.Fatal(err)

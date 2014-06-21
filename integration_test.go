@@ -1,8 +1,10 @@
 package datad
 
 import (
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -72,6 +74,10 @@ func (s FakeServer) Update(key, version string) error {
 	}
 	s.InMemoryData[key] = datum{"val" + string('A'+ver), version}
 
+	if *debug {
+		log.Printf("data[%q] = %+v", key, s.InMemoryData[key])
+	}
+
 	return nil
 }
 
@@ -98,8 +104,41 @@ func TestIntegration(t *testing.T) {
 
 	c := NewClient(NewInMemoryBackend(nil), "/")
 
-	err := c.AddServer(providerServer.URL, dataServer.URL)
+	// Add the server.
+	err := c.AddProvider(providerServer.URL, dataServer.URL)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Check that it was added.
+	providers, err := c.ListProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{providerServer.URL}; !reflect.DeepEqual(providers, want) {
+		t.Errorf("got providers == %v, want %v", providers, want)
+	}
+
+	// Check that the key is unroutable because although it exists on the
+	// provider, the provider has not yet synced to the registry (we call
+	// RegisterKeysOnServer below).
+	_, err = c.DataURL("/alice")
+	if err != ErrNoProviderForKey {
+		t.Error(err)
+	}
+
+	// Register the server's existing data.
+	err = c.RegisterKeysOnServer(providerServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// After calling RegisterKeysOnServer, the key should be routable.
+	dataURL, err := c.DataURL("/alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dataServer.URL; dataURL.String() != want {
+		t.Errorf("got DataURL == %q, want %q", dataURL, want)
 	}
 }

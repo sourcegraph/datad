@@ -1,35 +1,53 @@
 package datad
 
-import (
-	"errors"
-	"strings"
-)
+import "strings"
 
-// The registry is the mapping of keys to the servers that hold them.
-type registry struct {
+// A Registry maps keys to the servers that hold them.
+type Registry struct {
 	backend Backend
 
 	// keyPrefix always ends with a "/".
 	keyPrefix string
 }
 
-func newRegistry(b Backend, keyPrefix string) *registry {
+func NewRegistry(b Backend, keyPrefix string) *Registry {
 	keyPrefix = strings.TrimSuffix(keyPrefix, "/")
-	return &registry{b, keyPrefix}
+	return &Registry{b, keyPrefix}
 }
 
-var errNoServerForKey = errors.New("key has no server")
+func (r *Registry) providersDir(key string) string {
+	key = strings.TrimSuffix(key, "/")
+	return r.keyPrefix + "/" + key + "/__$providers"
+}
 
-func (r *registry) serverForKey(key string) (string, error) {
-	server, err := r.backend.Get(r.keyPrefix + "/" + key)
-	if err == ErrKeyNotExist {
-		return "", errNoServerForKey
-	} else if err != nil {
-		return "", err
+func (r *Registry) ProviderVersions(key string) (map[string]string, error) {
+	providers, err := r.backend.List(r.providersDir(key))
+	if err != nil {
+		return nil, err
 	}
-	return server, nil
+
+	pvs := make(map[string]string, len(providers))
+	for _, p := range providers {
+		p, err = decodeURLForKey(p)
+		if err != nil {
+			return nil, err
+		}
+
+		ver, err := r.ProviderVersion(key, p)
+		if err != nil {
+			return nil, err
+		}
+
+		pvs[p] = ver
+	}
+
+	return pvs, nil
 }
 
-func (r *registry) setServerForKey(key string, url string) error {
-	return r.backend.Set(r.keyPrefix+"/"+key, url)
+func (r *Registry) ProviderVersion(key, providerURL string) (string, error) {
+	return r.backend.Get(r.providersDir(key) + "/" + encodeURLForKey(providerURL))
+}
+
+func (r *Registry) AddProvider(key, providerURL, providerKeyVersion string) error {
+	return r.backend.Set(r.providersDir(key)+"/"+encodeURLForKey(providerURL), providerKeyVersion)
 }

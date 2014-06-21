@@ -1,25 +1,39 @@
 package datad
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestRegistry(t *testing.T) {
-	r := newRegistry(NewInMemoryBackend(nil), "/")
+	r := NewRegistry(NewInMemoryBackend(nil), "/")
 
-	_, err := r.serverForKey("k")
-	if err != errNoServerForKey {
+	pvs, err := r.ProviderVersions("k")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if len(pvs) != 0 {
+		t.Errorf("got pvs == %v, want empty", pvs)
+	}
 
-	err = r.setServerForKey("k", "e")
+	err = r.AddProvider("k", "p", "v")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	server, err := r.serverForKey("k")
+	pvs, err = r.ProviderVersions("k")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "e"; server != want {
-		t.Errorf("before SetServerForKey, got ServerForKey == %q, want %q", server, want)
+	if want := map[string]string{"p": "v"}; !reflect.DeepEqual(pvs, want) {
+		t.Errorf("got ProviderVersions == %v, want %v", pvs, want)
+	}
+
+	pv, err := r.ProviderVersion("k", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "v"; pv != want {
+		t.Errorf("got ProviderVersion == %q, want %q", pv, want)
 	}
 }

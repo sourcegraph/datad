@@ -5,29 +5,36 @@ import (
 	"testing"
 )
 
-func TestClient_ListAndAddEndpoints(t *testing.T) {
+func TestClient_Providers(t *testing.T) {
 	c := NewClient(NewInMemoryBackend(nil), "/")
 
-	servers, err := c.ListServers()
+	providers, err := c.ListProviders()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(servers) != 0 {
-		t.Errorf("got %d initial servers, want 0", len(servers))
+	if len(providers) != 0 {
+		t.Errorf("got %d initial providers, want 0", len(providers))
 	}
 
-	err = c.AddServer("http://provider.example.com", "http://data.example.com")
+	err = c.AddProvider("http://provider.example.com", "http://data.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"http://provider.example.com"}
-	servers, err = c.ListServers()
+	providers, err = c.ListProviders()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(servers, want) {
-		t.Errorf("got servers == %v, want %v", servers, want)
+	if want := []string{"http://provider.example.com"}; !reflect.DeepEqual(providers, want) {
+		t.Errorf("got providers == %v, want %v", providers, want)
+	}
+
+	dataURL, err := c.ProviderDataURL("http://provider.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "http://data.example.com"; dataURL != want {
+		t.Errorf("got ProviderDataURL == %q, want %q", dataURL, want)
 	}
 }
 

@@ -1,6 +1,7 @@
 package datad
 
 import (
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -141,4 +142,27 @@ func TestIntegration(t *testing.T) {
 	if want := dataServer.URL; dataURL.String() != want {
 		t.Errorf("got DataURL == %q, want %q", dataURL, want)
 	}
+
+	dataTransport, err := c.DataTransport("/alice", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	val := httpGet("DataTransport", t, dataTransport, "/alice")
+	if want := "valA"; val != want {
+		t.Errorf("got /alice == %q, want %q", val, want)
+	}
+}
+
+func httpGet(label string, t *testing.T, transport http.RoundTripper, url string) string {
+	c := &http.Client{Transport: transport}
+	resp, err := c.Get(url)
+	if err != nil {
+		t.Fatalf("%s (%s): %s", label, url, err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("%s (%s): %s", label, url, err)
+	}
+	return string(body)
 }

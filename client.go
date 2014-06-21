@@ -1,6 +1,7 @@
 package datad
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -81,14 +82,8 @@ func (c *Client) RegisterKeysOnServer(providerURL string) error {
 	return nil
 }
 
-// DataURL returns a URL to a piece of data specified by key, on a data server
-// that has previously been added to the cluster.
-//
-// TODO(sqs): add consistent param (if true, forces an update on all providers,
-// and perhaps just takes the one that returns first)
-//
-// TODO(sqs): add create param (to create nonexistent keys)
-func (c *Client) DataURL(key string) (*url.URL, error) {
+// dataURLVersions returns a map of registered data URLs (for key) to their version.
+func (c *Client) dataURLVersions(key string) (map[string]string, error) {
 	pvs, err := c.reg.ProviderVersions(key)
 	if err != nil {
 		return nil, err
@@ -98,17 +93,85 @@ func (c *Client) DataURL(key string) (*url.URL, error) {
 		return nil, ErrNoProviderForKey
 	}
 
-	for p, _ := range pvs {
+	du := make(map[string]string, len(pvs))
+	for p, v := range pvs {
 		dataURL, err := c.ProviderDataURL(p)
 		if err != nil {
 			return nil, err
 		}
 
-		u, err := url.Parse(dataURL)
+		du[dataURL] = v
+	}
+	return du, nil
+}
+
+// DataURL returns a URL to a piece of data specified by key, on a data server
+// that has previously been added to the cluster.
+//
+// TODO(sqs): add consistent param (if true, forces an update on all providers,
+// and perhaps just takes the one that returns first)
+//
+// TODO(sqs): add create param (to create nonexistent keys)
+func (c *Client) DataURL(key string) (*url.URL, error) {
+	dvs, err := c.dataURLVersions(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(dvs) == 0 {
+		return nil, ErrNoProviderForKey
+	}
+
+	for dataURL, _ := range dvs {
+		return url.Parse(dataURL)
+	}
+	panic("unreachable")
+}
+
+// DataTransport returns an http.RoundTripper that routes HTTP requests to the
+// data server that holds key.
+//
+// TODO(sqs): try all 3 requests and return the first that succeeds?
+//
+// TODO(sqs): add consistent param that ensures all servers are mutually up to
+// date?
+func (c *Client) DataTransport(key string, underlying http.RoundTripper) (http.RoundTripper, error) {
+	dvs, err := c.dataURLVersions(key)
+	if err != nil {
+		return nil, err
+	}
+	if underlying == nil {
+		underlying = http.DefaultTransport
+	}
+	return &dataTransport{dvs, underlying}, nil
+}
+
+type dataTransport struct {
+	dataURLVersions map[string]string
+	transport       http.RoundTripper
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *dataTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Clone the request so we can modify the URL.
+	req2 := *req
+
+	// Only copy over the URL path (because we use different hosts).
+	req2.URL = &url.URL{
+		Path:     strings.TrimPrefix(req.URL.Path, "/"), // so it's relative to the data base URL
+		RawQuery: req.URL.RawQuery,
+		Fragment: req.URL.Fragment,
+	}
+
+	for dataURLStr, _ := range t.dataURLVersions {
+		dataURL, err := url.Parse(dataURLStr)
 		if err != nil {
 			return nil, err
 		}
-		return u, nil
+
+		req.URL = dataURL.ResolveReference(req.URL)
+
+		return t.transport.RoundTrip(req)
 	}
 	panic("unreachable")
 }

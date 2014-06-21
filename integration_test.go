@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,7 +91,7 @@ func (s FakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(d.value))
 }
 
-func TestIntegration(t *testing.T) {
+func TestIntegration_Simple(t *testing.T) {
 	data := map[string]datum{
 		"/alice": {"valA", "0"},
 		"/bob":   {"valB", "1"},
@@ -150,6 +151,132 @@ func TestIntegration(t *testing.T) {
 	val := httpGet("DataTransport", t, dataTransport, "/alice")
 	if want := "valA"; val != want {
 		t.Errorf("got /alice == %q, want %q", val, want)
+	}
+}
+
+func TestIntegration_TwoProviders(t *testing.T) {
+	data1 := map[string]datum{"/alice": {"valA", "0"}}
+	fakeServer1 := NewFakeServer(data1)
+	dataServer1 := httptest.NewServer(fakeServer1)
+	defer dataServer1.Close()
+	providerServer1 := httptest.NewServer(NewProviderHandler(fakeServer1))
+	defer providerServer1.Close()
+
+	data2 := map[string]datum{"/bob": {"valB", "1"}}
+	fakeServer2 := NewFakeServer(data2)
+	dataServer2 := httptest.NewServer(fakeServer2)
+	defer dataServer2.Close()
+	providerServer2 := httptest.NewServer(NewProviderHandler(fakeServer2))
+	defer providerServer2.Close()
+
+	c := NewClient(NewInMemoryBackend(nil))
+
+	// Add the servers.
+	err := c.AddProvider(providerServer1.URL, dataServer1.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.AddProvider(providerServer2.URL, dataServer2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that they were added.
+	providers, err := c.ListProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(providers)
+	wantProviders := []string{providerServer1.URL, providerServer2.URL}
+	sort.Strings(wantProviders)
+	if !reflect.DeepEqual(providers, wantProviders) {
+		t.Errorf("got providers == %v, want %v", providers, wantProviders)
+	}
+
+	// Register the servers' existing data.
+	err = c.RegisterKeysOnProvider(providerServer1.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.RegisterKeysOnProvider(providerServer2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// After calling RegisterKeysOnProvider, the keys should be routable.
+
+	// "/alice" is on server 1.
+	dataURL, err := c.DataURL("/alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dataServer1.URL; dataURL.String() != want {
+		t.Errorf("got DataURL == %q, want %q", dataURL, want)
+	}
+
+	// "/bob" is on server 2.
+	dataURL, err = c.DataURL("/bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dataServer2.URL; dataURL.String() != want {
+		t.Errorf("got DataURL == %q, want %q", dataURL, want)
+	}
+}
+
+func TestIntegration_TwoProviders_DifferentVersions(t *testing.T) {
+	t.Skip("not yet implemented")
+
+	data1 := map[string]datum{"/alice": {"valA", "0"}}
+	fakeServer1 := NewFakeServer(data1)
+	dataServer1 := httptest.NewServer(fakeServer1)
+	defer dataServer1.Close()
+	providerServer1 := httptest.NewServer(NewProviderHandler(fakeServer1))
+	defer providerServer1.Close()
+
+	data2 := map[string]datum{"/alice": {"valB", "1"}}
+	fakeServer2 := NewFakeServer(data2)
+	dataServer2 := httptest.NewServer(fakeServer2)
+	defer dataServer2.Close()
+	providerServer2 := httptest.NewServer(NewProviderHandler(fakeServer2))
+	defer providerServer2.Close()
+
+	c := NewClient(NewInMemoryBackend(nil))
+
+	// Add the servers.
+	err := c.AddProvider(providerServer1.URL, dataServer1.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.AddProvider(providerServer2.URL, dataServer2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Register the servers' existing data.
+	err = c.RegisterKeysOnProvider(providerServer1.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.RegisterKeysOnProvider(providerServer2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Server 1 has version 0 of "/alice" and server 2 has version 1 of
+	// "/alice". TODO(sqs): The second call to RegisterKeysOnProvider recognize
+	// this and trigger an update on server.
+
+	// After the updates, they should both be at version 1 (TODO(sqs): or maybe they both
+	// update from the source, since it's hard to know which is the newer one).
+	dvs, err := c.DataURLVersions("/alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for dataURL, ver := range dvs {
+		if want := "1"; ver != want {
+			t.Errorf("got dataURL %q version == %q, want %q", dataURL, ver, want)
+		}
 	}
 }
 

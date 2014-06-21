@@ -16,12 +16,12 @@ func TestClient_ListAndAddEndpoints(t *testing.T) {
 		t.Errorf("got %d initial servers, want 0", len(servers))
 	}
 
-	err = c.AddServer("http://example.com")
+	err = c.AddServer("http://provider.example.com", "http://data.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []string{"http://example.com"}
+	want := []string{"http://provider.example.com"}
 	servers, err = c.ListServers()
 	if err != nil {
 		t.Fatal(err)

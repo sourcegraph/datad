@@ -1,0 +1,105 @@
+package datad
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+type datum struct{ value, version string }
+
+// InMemoryProvider is maps keys to their version.
+type InMemoryData map[string]datum
+
+func NewInMemoryData(data map[string]datum) InMemoryData {
+	if data == nil {
+		data = make(map[string]datum)
+	} else {
+		// Ensure all paths begin with '/'.
+		for k, d := range data {
+			if !strings.HasPrefix(k, "/") {
+				delete(data, k)
+				data["/"+k] = d
+			}
+		}
+	}
+	return InMemoryData(data)
+}
+
+func (m InMemoryData) KeyVersion(key string) (string, error) {
+	if !strings.HasPrefix(key, "/") {
+		key = "/" + key
+	}
+	d, present := m[key]
+	if !present {
+		return "", ErrKeyNotExist
+	}
+	return d.version, nil
+}
+
+func (m InMemoryData) KeyVersions(keyPrefix string) (map[string]string, error) {
+	if !strings.HasPrefix(keyPrefix, "/") {
+		keyPrefix = "/" + keyPrefix
+	}
+	if !strings.HasSuffix(keyPrefix, "/") {
+		keyPrefix += "/"
+	}
+	subkvs := make(map[string]string)
+	for k, d := range m {
+		if strings.HasPrefix(k, keyPrefix) {
+			subkvs[strings.TrimPrefix(k, keyPrefix)] = d.version
+		}
+	}
+	return subkvs, nil
+}
+
+type FakeServer struct {
+	InMemoryData
+}
+
+func NewFakeServer(data map[string]datum) FakeServer {
+	return FakeServer{NewInMemoryData(data)}
+}
+
+func (s FakeServer) Update(key, version string) error {
+	// simulate some computation or remote data fetch
+	ver, _ := strconv.Atoi(version)
+
+	if !strings.HasPrefix(key, "/") {
+		key = "/" + key
+	}
+	s.InMemoryData[key] = datum{"val" + string('A'+ver), version}
+
+	return nil
+}
+
+func (s FakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d, present := s.InMemoryData[r.URL.Path]
+	if !present {
+		http.Error(w, ErrKeyNotExist.Error(), http.StatusNotFound)
+	}
+	w.Write([]byte(d.value))
+}
+
+func TestIntegration(t *testing.T) {
+	data := map[string]datum{
+		"/alice": {"valA", "0"},
+		"/bob":   {"valB", "1"},
+	}
+	fakeServer := NewFakeServer(data)
+
+	dataServer := httptest.NewServer(fakeServer)
+	defer dataServer.Close()
+
+	providerServer := httptest.NewServer(NewProviderHandler(fakeServer))
+	defer providerServer.Close()
+
+	c := NewClient(NewInMemoryBackend(nil), "/")
+
+	err := c.AddServer(providerServer.URL, dataServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

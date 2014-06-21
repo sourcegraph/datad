@@ -42,8 +42,8 @@ func (c *Client) ListServers() ([]string, error) {
 
 // AddServer adds an server URL to the cluster, making it available to be
 // assigned data.
-func (c *Client) AddServer(urlStr string) error {
-	return c.backend.Set(c.serversPrefix+"/"+encodeServerURL(urlStr), "")
+func (c *Client) AddServer(providerURL, dataURL string) error {
+	return c.backend.Set(c.serversPrefix+"/"+encodeServerURL(providerURL), dataURL)
 }
 
 func encodeServerURL(urlStr string) string {

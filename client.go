@@ -19,8 +19,8 @@ func NewClient(b Backend, keyPrefix string) *Client {
 	keyPrefix = strings.TrimSuffix(keyPrefix, "/")
 	return &Client{
 		backend:       b,
-		reg:           NewRegistry(b, keyPrefix+"/registry"),
-		serversPrefix: keyPrefix + "/servers",
+		reg:           NewRegistry(b, "/registry"),
+		serversPrefix: "/servers",
 	}
 }
 
@@ -82,8 +82,8 @@ func (c *Client) RegisterKeysOnServer(providerURL string) error {
 	return nil
 }
 
-// dataURLVersions returns a map of registered data URLs (for key) to their version.
-func (c *Client) dataURLVersions(key string) (map[string]string, error) {
+// DataURLVersions returns a map of registered data URLs (for key) to their version.
+func (c *Client) DataURLVersions(key string) (map[string]string, error) {
 	pvs, err := c.reg.ProviderVersions(key)
 	if err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (c *Client) dataURLVersions(key string) (map[string]string, error) {
 //
 // TODO(sqs): add create param (to create nonexistent keys)
 func (c *Client) DataURL(key string) (*url.URL, error) {
-	dvs, err := c.dataURLVersions(key)
+	dvs, err := c.DataURLVersions(key)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (c *Client) DataURL(key string) (*url.URL, error) {
 // TODO(sqs): add consistent param that ensures all servers are mutually up to
 // date?
 func (c *Client) DataTransport(key string, underlying http.RoundTripper) (http.RoundTripper, error) {
-	dvs, err := c.dataURLVersions(key)
+	dvs, err := c.DataURLVersions(key)
 	if err != nil {
 		return nil, err
 	}

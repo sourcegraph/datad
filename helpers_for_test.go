@@ -1,8 +1,10 @@
 package datad
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 type datum struct{ value string }
@@ -57,6 +59,21 @@ func (p noopUpdateProvider) Update(key string) error {
 	if _, err := p.HasKey(key); err != nil {
 		return err
 	}
+	return nil
+}
+
+type fakeUpdateProvider struct {
+	data
+
+	updateCount int
+	mu          sync.Mutex
+}
+
+func (p fakeUpdateProvider) Update(key string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.data[slash(key)] = datum{value: fmt.Sprintf("val%d", p.updateCount)}
+	p.updateCount++
 	return nil
 }
 

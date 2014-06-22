@@ -104,6 +104,56 @@ func TestIntegration_NodeTTL(t *testing.T) {
 	})
 }
 
+// Test that a key is created upon demand (in the data source) if it does not exist yet.
+func TestIntegration_Update_CreateKey(t *testing.T) {
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+
+		data := data{}
+
+		ds := httptest.NewServer(dataHandler(data))
+		defer ds.Close()
+
+		n := NewNode(ds.URL, b, fakeUpdateProvider{data: data})
+		n.Start()
+		defer n.Stop()
+
+		c := NewClient(b)
+
+		// Check that no nodes are registered for "/newkey".
+		nodes, err := c.NodesForKey("/newkey")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got NodesForKey == %v, want empty", nodes)
+		}
+
+		// Test that calling Update will update the key and place it on the
+		// existing node.
+		nodes, err = c.Update("/newkey")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{n.Name}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Test that the data source for the key now contains the key's value
+		// (i.e., test that it was indeed created).
+		transport, err := c.TransportForKey("/newkey", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := httpGet("", t, transport, "/newkey")
+		if want := "val0"; resp != want {
+			t.Errorf("got response == %q, want %q", resp, want)
+		}
+	})
+}
+
 // Test that a key is deregistered from a node if the node's data source
 // returns HTTP errors.
 func TestIntegration_DeregisterFailingDataSources(t *testing.T) {

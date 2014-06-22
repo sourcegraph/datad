@@ -1,5 +1,9 @@
 package datad
 
+import "time"
+
+var RegistrationTTL = 60 * time.Second
+
 // A Registry contains a bidirectional mapping between data keys and nodes: (1)
 // for a given data key, a list of cluster nodes that have the underlying data
 // on disk; and (2) for a given node, a list of data keys that it should

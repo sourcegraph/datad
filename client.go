@@ -36,6 +36,60 @@ func (c *Client) NodesForKey(key string) ([]string, error) {
 	return c.registry.NodesForKey(key)
 }
 
+// Update updates key from the data source on the nodes that are registered to
+// it. If key is not registered to any nodes, a node is registered for it and
+// the key is created on that node.
+func (c *Client) Update(key string) (nodes []string, err error) {
+	nodes, err = c.NodesForKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nodes) == 0 {
+		// Register a node for the key.
+		clusterNodes, err := c.NodesInCluster()
+		if err != nil {
+			return nil, err
+		}
+
+		// Try to choose the same node as other clients that might be calling Update on the same key concurrently.
+		regNode := clusterNodes[keyBucket(key, len(clusterNodes))]
+
+		Log.Printf("Key to update does not exist yet: %q; registering key to node %s (will trigger update).", key, regNode)
+
+		// TODO(sqs): optimize this by only adding if not exists, and then
+		// seeing if it exists (to avoid potentially duplicating work).
+		err = c.registry.Add(key, regNode)
+		if err != nil {
+			return nil, err
+		}
+
+		// The call to Add will trigger the update on the node, so we're done.
+		return []string{regNode}, nil
+	}
+
+	for i, node := range nodes {
+		Log.Printf("Triggering update of key %q on node %s (%d/%d)...", key, node, i+1, len(nodes))
+		// Each node watches its list of registered keys, so just re-adding it
+		// to the registry will trigger an update.
+		err = c.registry.Add(key, node)
+		if err != nil {
+			return nil, err
+		}
+	}
+	Log.Printf("Finished triggering updates of key %q on %d nodes (%v).", key, len(nodes), nodes)
+
+	return nodes, nil
+}
+
+func keyBucket(key string, n int) int {
+	var x uint8
+	for i := 0; i < len(key); i++ {
+		x += key[i]
+	}
+	return int(x) % n
+}
+
 // TransportForKey returns a HTTP transport (http.RoundTripper) optimized for
 // accessing the data specified by key.
 //
@@ -85,7 +139,7 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		resp, err := t.transport.RoundTrip(&req2)
 		if err == nil && (resp.StatusCode >= 200 && resp.StatusCode <= 399) {
-			return resp, err
+			return resp, nil
 		}
 
 		if err == nil {
@@ -93,7 +147,7 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			var body []byte
 			body, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
-				return resp, err
+				return nil, err
 			}
 			err = &HTTPError{resp.StatusCode, string(bytes.TrimSpace(body))}
 		}
@@ -106,7 +160,7 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		if i == len(t.nodes)-1 {
 			// no more attempts remaining
-			return resp, err
+			return nil, err
 		}
 	}
 	panic("unreachable")

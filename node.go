@@ -1,10 +1,14 @@
 package datad
 
 import (
+	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/coreos/go-etcd/etcd"
 )
 
 var NodeMembershipTTL = 30 * time.Second
@@ -36,6 +40,7 @@ func NewNode(name string, b Backend, p Provider) *Node {
 		Provider: p,
 		backend:  b,
 		registry: NewRegistry(b),
+		Log:      log.New(os.Stderr, "", log.Ltime|log.Lshortfile),
 		stopChan: make(chan struct{}),
 	}
 }
@@ -70,6 +75,8 @@ func (n *Node) Start() error {
 		return err
 	}
 
+	go n.watchRegisteredKeys()
+
 	return nil
 }
 
@@ -101,7 +108,7 @@ func (n *Node) joinCluster() error {
 			case <-t.C:
 				err := n.refreshClusterMembership()
 				if err != nil {
-					log.Printf("Error refreshing node %s cluster membership: %s.", n.Name, err)
+					n.logf("Error refreshing node %s cluster membership: %s.", n.Name, err)
 				}
 			case <-n.stopChan:
 				t.Stop()
@@ -119,6 +126,44 @@ func (n *Node) refreshClusterMembership() error {
 		err = n.backend.UpdateDir(keyPathJoin(nodesPrefix, n.Name), uint64(NodeMembershipTTL/time.Second))
 	}
 	return err
+}
+
+// watchRegisteredKeys watches the registry for changes to the list of keys that
+// this node is registered for, or for modifications of existing registrations
+// (e.g., updates requested).
+func (n *Node) watchRegisteredKeys() error {
+	watchKey := keysForNodeDir(n.Name)
+
+	recv := make(chan *etcd.Response)
+	stopWatch := make(chan bool)
+
+	// Receive watched changes.
+	go func() {
+		for {
+			select {
+			case resp := <-recv:
+				key := strings.TrimPrefix(resp.Node.Key, watchKey+"/")
+				n.logf("Registry changed: %s on key %q.", resp.Action, key)
+				if !strings.Contains(strings.ToLower(resp.Action), "delete") {
+					n.logf("Updating key %q in data source (in response to registry %s).", key, resp.Action)
+					err := n.Provider.Update(key)
+					if err != nil {
+						n.logf("Error updating key %q in data source: %s.", key, err)
+					}
+				}
+			case <-n.stopChan:
+				n.logf("Stopping registry watcher.")
+				stopWatch <- true
+				return
+			}
+		}
+	}()
+
+	_, err := n.backend.(*EtcdBackend).etcd.Watch(watchKey, 0, true, recv, stopWatch)
+	if err != etcd.ErrWatchStoppedByUser {
+		return err
+	}
+	return nil
 }
 
 // registerExistingKeys examines this node's provider's local storage for data
@@ -146,6 +191,6 @@ func (n *Node) registerExistingKeys() error {
 
 func (n *Node) logf(format string, a ...interface{}) {
 	if n.Log != nil {
-		n.Log.Printf(format, a...)
+		n.Log.Printf(fmt.Sprintf("Node %s: ", n.Name)+format, a...)
 	}
 }

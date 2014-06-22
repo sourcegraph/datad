@@ -184,14 +184,14 @@ func (n *Node) registerExistingKeys() error {
 		return nil
 	}
 
-	n.logf("Found %d existing keys in %s: %v. Registering existing keys to this node...", len(keys), keys)
+	n.logf("Found %d existing keys in provider: %v. Registering existing keys to this node...", len(keys), keys)
 	for _, key := range keys {
 		err := n.registry.Add(key, n.Name)
 		if err != nil {
 			return err
 		}
 	}
-	n.logf("Finished registering existing %d keys to this node (%s).", len(keys), n.Name)
+	n.logf("Finished registering existing %d keys to this node.", len(keys))
 
 	return nil
 }

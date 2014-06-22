@@ -2,6 +2,7 @@ package datad
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -10,6 +11,7 @@ func testProvider(t *testing.T, p Provider) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sort.Strings(keys)
 	if wantKeys := []string{"k0", "k1"}; !reflect.DeepEqual(keys, wantKeys) {
 		t.Errorf("got Keys == %v, want %v", keys, wantKeys)
 	}

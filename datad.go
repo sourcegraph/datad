@@ -9,6 +9,8 @@ import (
 const (
 	version          = "0.0.1"
 	DefaultKeyPrefix = "/datad/"
+
+	providersPrefix = "/providers"
 )
 
 var (
@@ -29,3 +31,17 @@ func slash(path string) string {
 func unslash(path string) string {
 	return strings.TrimPrefix(path, "/")
 }
+
+// A KeyFunc maps path-space onto key-space.
+//
+// In other words, it returns the key (a string) of the data stored at path. The
+// key, in datad terms, is the unit of storage.
+//
+// Depending on the type of data, keys and paths may be a 1-to-1 mapping, or
+// paths may point to resources inside of a key. For example, you might key on
+// repositories clone URLs and allow paths that refer to specific files or
+// commits inside of a repository.
+type KeyFunc func(path string) (key string, err error)
+
+// IdentityKey is a KeyFunc that treats each path as a key.
+func IdentityKey(path string) (string, error) { return path, nil }

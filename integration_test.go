@@ -2,122 +2,99 @@ package datad
 
 import (
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-type datum struct{ value, version string }
+type datum struct{ value string }
 
-// InMemoryProvider is maps keys to their version.
-type InMemoryData map[string]datum
+type data map[string]datum
 
-func NewInMemoryData(data map[string]datum) InMemoryData {
-	if data == nil {
-		data = make(map[string]datum)
+func newData(m map[string]datum) data {
+	if m == nil {
+		m = make(map[string]datum)
 	} else {
 		// Ensure all paths begin with '/'.
-		for k, d := range data {
+		for k, d := range m {
 			if !strings.HasPrefix(k, "/") {
-				delete(data, k)
-				data["/"+k] = d
+				delete(m, k)
+				m["/"+k] = d
 			}
 		}
 	}
-	return InMemoryData(data)
+	return data(m)
 }
 
-func (m InMemoryData) KeyVersion(key string) (string, error) {
+func (m data) HasKey(key string) (bool, error) {
 	if !strings.HasPrefix(key, "/") {
 		key = "/" + key
 	}
 	d, present := m[key]
 	if !present {
-		return "", ErrKeyNotExist
+		return false, ErrKeyNotExist
 	}
-	return d.version, nil
+	return true, nil
 }
 
-func (m InMemoryData) KeyVersions(keyPrefix string) (map[string]string, error) {
+func (m data) Keys(keyPrefix string) ([]string, error) {
 	if !strings.HasPrefix(keyPrefix, "/") {
 		keyPrefix = "/" + keyPrefix
 	}
 	if !strings.HasSuffix(keyPrefix, "/") {
 		keyPrefix += "/"
 	}
-	subkvs := make(map[string]string)
+	var subkeys []string
 	for k, d := range m {
 		if strings.HasPrefix(k, keyPrefix) {
-			subkvs[strings.TrimPrefix(k, keyPrefix)] = d.version
+			subkeys = append(subkeys, strings.TrimPrefix(k, keyPrefix))
 		}
 	}
-	return subkvs, nil
+	return subkeys, nil
 }
 
-type FakeServer struct {
-	InMemoryData
-}
+type noopUpdateProvider struct{ data }
 
-func NewFakeServer(data map[string]datum) FakeServer {
-	return FakeServer{NewInMemoryData(data)}
-}
-
-func (s FakeServer) Update(key, version string) error {
-	// simulate some computation or remote data fetch
-	ver, _ := strconv.Atoi(version)
-
-	if !strings.HasPrefix(key, "/") {
-		key = "/" + key
+func (p noopUpdateProvider) Update(key string) error {
+	if present, err := p.HasKey(key); err != nil {
+		return err
 	}
-	s.InMemoryData[key] = datum{"val" + string('A'+ver), version}
-
-	if *debug {
-		log.Printf("data[%q] = %+v", key, s.InMemoryData[key])
-	}
-
 	return nil
 }
 
-func (s FakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	d, present := s.InMemoryData[r.URL.Path]
+type dataHandler map[string]datum
+
+func (h dataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d, present := h[slash(r.URL.Path)]
 	if !present {
 		http.Error(w, ErrKeyNotExist.Error(), http.StatusNotFound)
+		return
 	}
 	w.Write([]byte(d.value))
 }
 
 func TestIntegration_Simple(t *testing.T) {
-	data := map[string]datum{
-		"/alice": {"valA", "0"},
-		"/bob":   {"valB", "1"},
-	}
-	fakeServer := NewFakeServer(data)
+	data := data{"/key": {"val"}}
+	b := NewInMemoryBackend(nil)
 
-	dataServer := httptest.NewServer(fakeServer)
-	defer dataServer.Close()
+	ds := httptest.NewServer(dataHandler(data))
+	defer ds.Close()
 
-	providerServer := httptest.NewServer(NewProviderHandler(fakeServer))
-	defer providerServer.Close()
+	pub := NewPublisher(ds.URL, b, noopUpdateProvider{data})
+	pub.Start()
+	defer pub.Stop()
 
-	c := NewClient(NewInMemoryBackend(nil))
+	c := NewClient(b)
 
-	// Add the server.
-	err := c.AddProvider(providerServer.URL, dataServer.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check that it was added.
+	// Check that the provider has been published.
 	providers, err := c.ListProviders()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{providerServer.URL}; !reflect.DeepEqual(providers, want) {
+	if want := []string{ds.URL}; !reflect.DeepEqual(providers, want) {
 		t.Errorf("got providers == %v, want %v", providers, want)
 	}
 

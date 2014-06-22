@@ -1,6 +1,7 @@
 package datad
 
 import (
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,12 +147,14 @@ func (c *Client) DataTransport(key string, underlying http.RoundTripper) (http.R
 	if underlying == nil {
 		underlying = http.DefaultTransport
 	}
-	return &dataTransport{dvs, underlying}, nil
+	return &dataTransport{dvs, underlying, key, c}, nil
 }
 
 type dataTransport struct {
 	dataURLVersions map[string]string
 	transport       http.RoundTripper
+	key             string
+	c               *Client
 }
 
 // RoundTrip implements http.RoundTripper.
@@ -166,6 +169,7 @@ func (t *dataTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		Fragment: req.URL.Fragment,
 	}
 
+	i := 0
 	for dataURLStr, _ := range t.dataURLVersions {
 		dataURL, err := url.Parse(dataURLStr)
 		if err != nil {
@@ -174,7 +178,29 @@ func (t *dataTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		req.URL = dataURL.ResolveReference(req.URL)
 
-		return t.transport.RoundTrip(req)
+		resp, err := t.transport.RoundTrip(req)
+		if err == nil && (resp.StatusCode >= 200 && resp.StatusCode <= 399) {
+			return resp, err
+		}
+
+		if err == nil {
+			defer resp.Body.Close()
+			var body []byte
+			body, err = ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return resp, err
+			}
+			err = &HTTPError{resp.StatusCode, string(body)}
+		}
+
+		Log.Printf("request for %q failed in DataTransport (%s); deregistering data server %q from key", req.URL, err, dataURLStr)
+		// TODO(sqs): reregister data server
+
+		if i == len(t.dataURLVersions)-1 { // last one
+			return resp, err
+		}
+
+		i++
 	}
 	panic("unreachable")
 }

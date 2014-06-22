@@ -43,6 +43,15 @@ func testBackend(t *testing.T, b Backend) {
 	if wantKeys := []string{"key"}; !reflect.DeepEqual(keys, wantKeys) {
 		t.Errorf("got keys == %v, want %v", keys, wantKeys)
 	}
+
+	err = b.Delete("dir/key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.Get("dir/key")
+	if err != ErrKeyNotExist {
+		t.Error(err)
+	}
 }
 
 func TestInMemoryBackend(t *testing.T) {

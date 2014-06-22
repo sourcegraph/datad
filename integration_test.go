@@ -154,6 +154,79 @@ func TestIntegration_Simple(t *testing.T) {
 	}
 }
 
+// Test that a key is deregistered from a data server if the data server
+// is failing (HTTP errors are being returned).
+func TestIntegration_FailingDataServer(t *testing.T) {
+	t.Skip("not yet implemented")
+
+	// The "/alice" key will be registered to a provider that's no longer up.
+	fakeServer := NewFakeServer(map[string]datum{"/alice": {"valA", "0"}})
+
+	dataServer := httptest.NewServer(fakeServer)
+	defer dataServer.Close()
+	providerServer := httptest.NewServer(NewProviderHandler(fakeServer))
+	defer providerServer.Close()
+
+	fakeServer2 := NewFakeServer(nil)
+	providerServer2 := httptest.NewServer(NewProviderHandler(fakeServer2))
+	defer providerServer2.Close()
+	failingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "dummy error", http.StatusInternalServerError)
+	}))
+	defer failingServer.Close()
+
+	c := NewClient(NewInMemoryBackend(nil))
+
+	// Add the failing provider.
+	err := c.AddProvider(providerServer2.URL, failingServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Register the "/alice" key to the failing provider (always returns HTTP 500).
+	err = c.reg.AddProvider("/alice", providerServer2.URL, "0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add the provider that is up. (But don't register "/alice" to it.)
+	err = c.AddProvider(providerServer.URL, dataServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test that DataURL returns the URL to the failing data server. (It does not
+	// check for liveness of the data server.)
+	dataURL, err := c.DataURL("/alice")
+	if err != nil {
+		t.Error(err)
+	}
+	if dataURL.String() != failingServer.URL {
+		t.Errorf("got DataURL == %q, want %q", dataURL, failingServer.URL)
+	}
+
+	// Test that the DataTransport will reassign "/alice" to another provider
+	// when it notices that the request to the failing server fails.
+	dataTransport, err := c.DataTransport("/alice", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (&http.Client{Transport: dataTransport}).Get("/alice")
+	if err == nil || !strings.Contains(err.Error(), "dummy error") {
+		t.Errorf("got DataTransport get error %v, want \"dummy error\"", err)
+	}
+
+	// Test that the "/alice" key is unregistered from the failing server and
+	// registered to the live server.
+	pvs, err := c.reg.ProviderVersions("/alice")
+	if err != nil {
+		t.Error(err)
+	}
+	if want := map[string]string{dataServer.URL: "0"}; !reflect.DeepEqual(pvs, want) {
+		t.Errorf("got ProviderVersions == %v, want %v", pvs, want)
+	}
+}
+
 func TestIntegration_TwoProviders(t *testing.T) {
 	data1 := map[string]datum{"/alice": {"valA", "0"}}
 	fakeServer1 := NewFakeServer(data1)

@@ -51,3 +51,7 @@ func (r *Registry) ProviderVersion(key, providerURL string) (string, error) {
 func (r *Registry) AddProvider(key, providerURL, providerKeyVersion string) error {
 	return r.backend.Set(r.providersDir(key)+"/"+encodeURLForKey(providerURL), providerKeyVersion)
 }
+
+func (r *Registry) RemoveProvider(key, providerURL string) error {
+	return r.backend.Delete(r.providersDir(key) + "/" + encodeURLForKey(providerURL))
+}

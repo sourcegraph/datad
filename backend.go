@@ -11,6 +11,7 @@ type Backend interface {
 	Get(key string) (string, error)
 	List(key string) ([]string, error)
 	Set(key, value string) error
+	Delete(key string) error
 }
 
 var ErrKeyNotExist = errors.New("key does not exist")
@@ -36,9 +37,7 @@ func (b InMemoryBackend) Get(key string) (string, error) {
 }
 
 func (b InMemoryBackend) List(key string) ([]string, error) {
-	if !strings.HasPrefix(key, "/") {
-		key = "/" + key
-	}
+	key = slash(key)
 	if !strings.HasSuffix(key, "/") {
 		key += "/"
 	}
@@ -52,10 +51,14 @@ func (b InMemoryBackend) List(key string) ([]string, error) {
 }
 
 func (b InMemoryBackend) Set(key, value string) error {
-	if !strings.HasPrefix(key, "/") {
-		key = "/" + key
-	}
+	key = slash(key)
 	b.m[key] = value
+	return nil
+}
+
+func (b InMemoryBackend) Delete(key string) error {
+	key = slash(key)
+	delete(b.m, key)
 	return nil
 }
 
@@ -99,6 +102,12 @@ func (c *EtcdBackend) List(key string) ([]string, error) {
 func (c *EtcdBackend) Set(key, value string) error {
 	key = c.fullKey(key)
 	_, err := c.etcd.Set(key, value, 0)
+	return err
+}
+
+func (c *EtcdBackend) Delete(key string) error {
+	key = c.fullKey(key)
+	_, err := c.etcd.Delete(key, false)
 	return err
 }
 

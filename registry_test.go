@@ -79,6 +79,14 @@ func TestRegistry(t *testing.T) {
 			t.Errorf("got KeysForNode == %v, want %v", keys, want)
 		}
 
+		keyMap, err := r.KeyMap()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := map[string][]string{"k": []string{"n"}, "l/m": nil}; !reflect.DeepEqual(keyMap, want) {
+			t.Errorf("got KeyMap == %v, want %v", keyMap, want)
+		}
+
 		nodes, err = r.NodesForKey("l/m")
 		if err != nil {
 			t.Fatal(err)

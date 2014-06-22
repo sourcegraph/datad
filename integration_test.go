@@ -316,6 +316,73 @@ func TestIntegration_KeyTransportHandleUnreachableDataSources(t *testing.T) {
 	})
 }
 
+// Test that keys with no registered nodes are periodically re-registered to new nodes.
+func TestIntegration_Balance_RegisterUnregisteredKeys(t *testing.T) {
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+
+		data := data{}
+
+		ds := httptest.NewServer(dataHandler(data))
+		defer ds.Close()
+
+		n := NewNode(ds.URL, b, fakeUpdateProvider{data: data})
+		n.Start()
+		defer n.Stop()
+
+		c := NewClient(b)
+
+		// Simulate what would happen when a key's node dies: previously it was
+		// registered, then it becomes unregistered, which means the key is
+		// still in the registry as a directory with no subdirectories (i.e., no
+		// nodes registered to it).
+		err := c.registry.Add("key", "deadnode")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.registry.Remove("key", "deadnode")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check that the key has no registered nodes.
+		nodes, err := c.NodesForKey("/key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got NodesForKey == %v, want empty", nodes)
+		}
+
+		// Trigger a balance on the live node.
+		err = n.balance()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Test that there's now a node registered for the key.
+		nodes, err = c.NodesForKey("/key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{n.Name}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+
+		// Test that the data source for the key contains its value.
+		transport, err := c.TransportForKey("/key", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := httpGet("", t, transport, "/key")
+		if want := "val0"; resp != want {
+			t.Errorf("got response == %q, want %q", resp, want)
+		}
+	})
+}
+
 // func TestIntegration_TwoNodes(t *testing.T) {
 // 	data1 := map[string]datum{"/key": {"valA", "0"}}
 // 	fakeServer1 := NewFakeServer(data1)

@@ -3,7 +3,9 @@ package datad
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -76,6 +78,7 @@ func (n *Node) Start() error {
 	}
 
 	go n.watchRegisteredKeys()
+	go n.balancePeriodically()
 
 	return nil
 }
@@ -177,7 +180,11 @@ func (n *Node) registerExistingKeys() error {
 		return err
 	}
 
-	n.logf("Found %d existing keys in %s: %v. Registering existing keys to this node (%s)...", len(keys), keys, n.Name)
+	if len(keys) == 0 {
+		return nil
+	}
+
+	n.logf("Found %d existing keys in %s: %v. Registering existing keys to this node...", len(keys), keys)
 	for _, key := range keys {
 		err := n.registry.Add(key, n.Name)
 		if err != nil {
@@ -185,6 +192,103 @@ func (n *Node) registerExistingKeys() error {
 		}
 	}
 	n.logf("Finished registering existing %d keys to this node (%s).", len(keys), n.Name)
+
+	return nil
+}
+
+// startBalancer starts a periodic process that balances the distribution of
+// keys to nodes.
+func (n *Node) balancePeriodically() {
+	// TODO(sqs): allow tweaking the balance interval
+	t := time.NewTicker(time.Minute)
+	for {
+		select {
+		case <-t.C:
+			err := n.balance()
+			if err != nil {
+				n.logf("Error balancing: %s. Will retry next balance interval.", err)
+			}
+		case <-n.stopChan:
+			t.Stop()
+			return
+		}
+	}
+}
+
+// balance examines all keys and ensures each key has a registered node. If not,
+// it registers a node for the key. This lets the cluster heal itself after a
+// node goes down (which causes keys to be orphaned).
+func (n *Node) balance() error {
+	keyMap, err := n.registry.KeyMap()
+	if err != nil {
+		return err
+	}
+
+	if len(keyMap) == 0 {
+		return nil
+	}
+
+	c := NewClient(n.backend)
+	clusterNodes, err := c.NodesInCluster()
+	if err != nil {
+		return err
+	}
+
+	// TODO(sqs): allow tweaking this parameter
+	x := rand.Intn(10)
+	start := time.Now()
+
+	n.logf("Balancer: starting on %d keys, with known cluster nodes %v.", len(keyMap), clusterNodes)
+	actions := 0
+	for key, nodes := range keyMap {
+		if len(nodes) == 0 {
+			regNode := clusterNodes[keyBucket(key, len(clusterNodes))]
+
+			n.logf("Balancer: found unregistered key %q; registering it to node %s.", key, regNode)
+
+			// TODO(sqs): optimize this by only adding if not exists, and then
+			// seeing if it exists (to avoid potentially duplicating work).
+			err := c.registry.Add(key, regNode)
+			if err != nil {
+				return err
+			}
+
+			actions++
+			continue
+		}
+
+		// Check liveness of key on each node.
+		for _, node := range nodes {
+			t, err := c.transportForKey(key, nil, []string{node})
+			if err != nil {
+				return err
+			}
+			resp, err := (&http.Client{Transport: t}).Get(slash(key))
+			if err != nil {
+				actions++
+				n.logf("Balancer: liveness check failed for key %q on node %s: %s. Client deregistered key from node.", key, node, err)
+			}
+			if resp != nil {
+				resp.Body.Close()
+			}
+		}
+
+		// Update keys on this node (but not each time, to avoid overloading the
+		// origin servers).
+		if x == 0 {
+			for _, node := range nodes {
+				if node == n.Name {
+					n.logf("Balancer: updating key %q in data source on current node.", key)
+					err := n.Provider.Update(key)
+					if err != nil {
+						n.logf("Balancer: error updating key %q in data source on current node: %s. (Continuing to balance other keys.)", key, err)
+					}
+					actions++
+				}
+			}
+		}
+	}
+	n.logf("Balancer: completed in %s for %d keys (%d non-read actions performed).", time.Since(start), len(keyMap), actions)
 
 	return nil
 }

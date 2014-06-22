@@ -11,7 +11,7 @@ const (
 	DefaultKeyPrefix = "/datad/"
 
 	nodesPrefix = "/nodes"
-	dataPrefix  = "/data"
+	keysPrefix  = "/data"
 )
 
 var (

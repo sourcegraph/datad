@@ -44,14 +44,30 @@ func (c *EtcdBackend) Get(key string) (string, error) {
 }
 
 func (c *EtcdBackend) ListKeys(key string, recursive bool) ([]string, error) {
-	return c.list(key, recursive, true)
+	return c.listNames(key, recursive, true)
 }
 
 func (c *EtcdBackend) List(key string, recursive bool) ([]string, error) {
-	return c.list(key, recursive, false)
+	return c.listNames(key, recursive, false)
 }
 
-func (c *EtcdBackend) list(key string, recursive, keysOnly bool) ([]string, error) {
+func (c *EtcdBackend) listNames(key string, recursive, keysOnly bool) ([]string, error) {
+	nodes, err := c.list(key, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	for _, node := range nodes {
+		if !keysOnly || !node.Dir {
+			names = append(names, node.Key)
+		}
+	}
+
+	return names, nil
+}
+
+func (c *EtcdBackend) list(key string, recursive bool) ([]*etcd.Node, error) {
 	key = c.fullKey(key)
 	resp, err := c.etcd.Get(key, true, recursive)
 	if isEtcdKeyNotExist(err) {
@@ -62,20 +78,19 @@ func (c *EtcdBackend) list(key string, recursive, keysOnly bool) ([]string, erro
 
 	rmPrefix := strings.TrimSuffix(key, "/") + "/"
 
-	var subkeys []string
+	var subnodes []*etcd.Node
 	var add func(nodes etcd.Nodes)
 	add = func(nodes etcd.Nodes) {
 		for _, node := range nodes {
-			if !keysOnly || !node.Dir {
-				subkeys = append(subkeys, strings.TrimPrefix(node.Key, rmPrefix))
-			}
+			node.Key = strings.TrimPrefix(node.Key, rmPrefix)
+			subnodes = append(subnodes, node)
 			if len(node.Nodes) > 0 {
 				add(node.Nodes)
 			}
 		}
 	}
 	add(resp.Node.Nodes)
-	return subkeys, nil
+	return subnodes, nil
 }
 
 func (c *EtcdBackend) Set(key, value string) error {

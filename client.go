@@ -40,6 +40,13 @@ func (c *Client) NodesForKey(key string) ([]string, error) {
 // it. If key is not registered to any nodes, a node is registered for it and
 // the key is created on that node.
 func (c *Client) Update(key string) (nodes []string, err error) {
+	return c.update(key, nil)
+}
+
+// update is like Update, but takes a clusterNodes param to avoid requerying
+// ClusterNodes each time (for callers who call update many times in a short
+// period of time).
+func (c *Client) update(key string, clusterNodes []string) (nodes []string, err error) {
 	nodes, err = c.NodesForKey(key)
 	if err != nil {
 		return nil, err
@@ -47,9 +54,11 @@ func (c *Client) Update(key string) (nodes []string, err error) {
 
 	if len(nodes) == 0 {
 		// Register a node for the key.
-		clusterNodes, err := c.NodesInCluster()
-		if err != nil {
-			return nil, err
+		if clusterNodes == nil {
+			clusterNodes, err = c.NodesInCluster()
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Try to choose the same node as other clients that might be calling Update on the same key concurrently.
@@ -82,14 +91,6 @@ func (c *Client) Update(key string) (nodes []string, err error) {
 	return nodes, nil
 }
 
-func keyBucket(key string, n int) int {
-	var x uint8
-	for i := 0; i < len(key); i++ {
-		x += key[i]
-	}
-	return int(x) % n
-}
-
 // TransportForKey returns a HTTP transport (http.RoundTripper) optimized for
 // accessing the data specified by key.
 //
@@ -100,6 +101,12 @@ func (c *Client) TransportForKey(key string, underlying http.RoundTripper) (http
 		return nil, err
 	}
 
+	return c.transportForKey(key, underlying, nodes)
+}
+
+// transportForkey is like TransportForKey but is optimized for callers who
+// already know the nodes that are registered to key.
+func (c *Client) transportForKey(key string, underlying http.RoundTripper, nodes []string) (http.RoundTripper, error) {
 	if len(nodes) == 0 {
 		return nil, ErrNoNodesForKey
 	}

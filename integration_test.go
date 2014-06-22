@@ -129,7 +129,7 @@ func TestIntegration_Update_CreateKey(t *testing.T) {
 			t.Errorf("got NodesForKey == %v, want empty", nodes)
 		}
 
-		// Test that calling Update will update the key and place it on the
+		// Test that calling Update will update the key and register it to the
 		// existing node.
 		nodes, err = c.Update("/newkey")
 		if err != nil {
@@ -148,6 +148,47 @@ func TestIntegration_Update_CreateKey(t *testing.T) {
 			t.Fatal(err)
 		}
 		resp := httpGet("", t, transport, "/newkey")
+		if want := "val0"; resp != want {
+			t.Errorf("got response == %q, want %q", resp, want)
+		}
+	})
+}
+
+// Test that a key is updated.
+func TestIntegration_Update_UpdateKey(t *testing.T) {
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+
+		data := data{"key": {"initialVal"}}
+
+		ds := httptest.NewServer(dataHandler(data))
+		defer ds.Close()
+
+		n := NewNode(ds.URL, b, fakeUpdateProvider{data: data})
+		n.Start()
+		defer n.Stop()
+
+		c := NewClient(b)
+
+		// Test that calling Update will update the key and return the node that
+		// it was already registered to.
+		nodes, err := c.Update("/key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{n.Name}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Test that the data source for the key now contains the key's updated
+		// value (i.e., test that it was indeed updated).
+		transport, err := c.TransportForKey("/key", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := httpGet("", t, transport, "/key")
 		if want := "val0"; resp != want {
 			t.Errorf("got response == %q, want %q", resp, want)
 		}

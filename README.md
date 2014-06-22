@@ -1,12 +1,16 @@
 # datad
 
+[![Build Status](https://travis-ci.org/sourcegraph/datad.svg)](https://travis-ci.org/sourcegraph/datad)
+
 A distributed cache that spreads an existing local data source across a cluster,
 routes requests for data to the appropriate nodes, and ensures data is
 replicated and available.
 
-datad was created, and is used in production, at
+datad was created, and is (almost ready to be) used in production, at
 [Sourcegraph](https://sourcegraph.com) to provide fast, reliable access to 4TB+
 of git and hg repository data (files, commits, branches, etc.).
+
+**WARNING:** This is a very new project. Use at your own risk!
 
 ## Architecture
 

@@ -15,7 +15,8 @@ type Backend interface {
 	ListKeys(key string, recursive bool) ([]string, error)
 
 	Set(key, value string) error
-	SetDir(key string) error
+	SetDir(key string, ttl uint64) error
+	UpdateDir(key string, ttl uint64) error
 	Delete(key string) error
 }
 
@@ -83,9 +84,15 @@ func (c *EtcdBackend) Set(key, value string) error {
 	return err
 }
 
-func (c *EtcdBackend) SetDir(key string) error {
+func (c *EtcdBackend) SetDir(key string, ttl uint64) error {
 	key = c.fullKey(key)
-	_, err := c.etcd.SetDir(key, 0)
+	_, err := c.etcd.SetDir(key, ttl)
+	return err
+}
+
+func (c *EtcdBackend) UpdateDir(key string, ttl uint64) error {
+	key = c.fullKey(key)
+	_, err := c.etcd.UpdateDir(key, ttl)
 	return err
 }
 
@@ -99,8 +106,10 @@ func (c *EtcdBackend) fullKey(keyWithoutPrefix string) string {
 	return keyPathJoin(c.keyPrefix, keyWithoutPrefix)
 }
 
-func isEtcdKeyNotExist(err error) bool {
-	if err, ok := err.(*etcd.EtcdError); ok && err != nil && err.ErrorCode == 100 {
+func isEtcdKeyNotExist(err error) bool { return isEtcdErrorCode(err, 100) }
+
+func isEtcdErrorCode(err error, code int) bool {
+	if err, ok := err.(*etcd.EtcdError); ok && err != nil && err.ErrorCode == code {
 		return true
 	}
 	return false

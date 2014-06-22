@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	etcd_client "github.com/coreos/go-etcd/etcd"
 )
@@ -17,10 +18,7 @@ func TestIntegration_Simple(t *testing.T) {
 
 		data := data{"/key": {"val"}}
 
-		ds := httptest.NewServer(dataHandler(data))
-		defer ds.Close()
-
-		n := NewNode(ds.URL, b, noopUpdateProvider{data})
+		n := NewNode("n", b, noopUpdateProvider{data})
 
 		c := NewClient(b)
 
@@ -48,13 +46,60 @@ func TestIntegration_Simple(t *testing.T) {
 			t.Errorf("got NodesInCluster == %v, want %v", nodes, want)
 		}
 
-		// After calling RegisterKeysOnProvider, the key should be routable.
+		// After calling n.Start(), the key should be routable (since it is
+		// persisted locally on the node).
 		nodes, err = c.NodesForKey("/key")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if want := []string{n.Name}; !reflect.DeepEqual(nodes, want) {
 			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+	})
+}
+
+func TestIntegration_NodeTTL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires at least 1s sleep")
+	}
+
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+
+		data := data{"/key": {"val"}}
+
+		c := NewClient(b)
+
+		// Shorten the NodeMembershipTTL.
+		origTTL := NodeMembershipTTL
+		NodeMembershipTTL = time.Second // minimum for etcd
+		defer func() { NodeMembershipTTL = origTTL }()
+
+		n := NewNode("n", b, noopUpdateProvider{data})
+		must(t, n.Start())
+
+		// Ensure that the node is in the cluster.
+		nodes, err := c.NodesInCluster()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{n.Name}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesInCluster == %v, want %v", nodes, want)
+		}
+
+		// Unjoin the cluster.
+		must(t, n.Stop())
+
+		// Sleep so that the TTL elapses.
+		time.Sleep(NodeMembershipTTL + time.Millisecond*500)
+
+		// Ensure that the node is no longer in the cluster.
+		nodes, err = c.NodesInCluster()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got NodesForKey == %v, want empty", nodes)
 		}
 	})
 }
@@ -88,8 +133,8 @@ func TestIntegration_DeregisterFailingDataSources(t *testing.T) {
 			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
 		}
 
-		// Test that the DataTransport will deregister "/key" from badN
-		// when it notices that the HTTP request fails.
+		// Test that the keyTransport will deregister "/key" from badN when it
+		// notices that the HTTP request fails.
 		transport, err := c.TransportForKey("/key", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -163,7 +208,7 @@ func TestIntegration_KeyTransportHandleUnreachableDataSources(t *testing.T) {
 			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
 		}
 
-		// Test that the DataTransport will deregister "/key" from badN
+		// Test that the keyTransport will deregister "/key" from badN
 		// when it notices that the HTTP request fails.
 		transport, err := c.TransportForKey("/key", nil)
 		if err != nil {

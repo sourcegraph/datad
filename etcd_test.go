@@ -61,3 +61,9 @@ func TestEtcdBackend(t *testing.T) {
 		testBackend(t, b)
 	})
 }
+
+func must(t *testing.T, err error) {
+	if err != nil {
+		t.Fatal(err)
+	}
+}

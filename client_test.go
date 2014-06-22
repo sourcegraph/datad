@@ -3,31 +3,35 @@ package datad
 import (
 	"reflect"
 	"testing"
+
+	etcd_client "github.com/coreos/go-etcd/etcd"
 )
 
-func TestClient_Providers(t *testing.T) {
-	b := NewInMemoryBackend(nil)
-	c := NewClient(b)
-	pub := NewPublisher("http://example.com", b, NoopProvider{})
+func TestClient_NodesInCluster(t *testing.T) {
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+		c := NewClient(b)
+		node := NewNode("example.com", b, NoopProvider{})
 
-	providers, err := c.ListProviders()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(providers) != 0 {
-		t.Errorf("got %d initial providers, want 0", len(providers))
-	}
+		nodes, err := c.NodesInCluster()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got %d initial nodes, want 0", len(nodes))
+		}
 
-	err = pub.addProviderToCluster()
-	if err != nil {
-		t.Fatal(err)
-	}
+		err = node.addToCluster()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	providers, err = c.ListProviders()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"http://example.com"}; !reflect.DeepEqual(providers, want) {
-		t.Errorf("got providers == %v, want %v", providers, want)
-	}
+		nodes, err = c.NodesInCluster()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"example.com"}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got nodes == %v, want %v", nodes, want)
+		}
+	})
 }

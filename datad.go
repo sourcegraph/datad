@@ -10,7 +10,8 @@ const (
 	version          = "0.0.1"
 	DefaultKeyPrefix = "/datad/"
 
-	providersPrefix = "/providers"
+	nodesPrefix = "/nodes"
+	dataPrefix  = "/data"
 )
 
 var (
@@ -30,6 +31,26 @@ func slash(path string) string {
 // unslash removes a leading slash from path if it contains one.
 func unslash(path string) string {
 	return strings.TrimPrefix(path, "/")
+}
+
+func trailingSlash(path string) string {
+	if strings.HasSuffix(path, "/") {
+		return path
+	}
+	return path + "/"
+}
+
+// keyPathJoin removes all slashes on either side of each component and returns
+// the components joined by slashes with a leading slash.
+func keyPathJoin(components ...string) string {
+	var c2 []string
+	for _, c := range components {
+		c = strings.Trim(c, "/")
+		if c != "" {
+			c2 = append(c2, c)
+		}
+	}
+	return "/" + strings.Join(c2, "/")
 }
 
 // A KeyFunc maps path-space onto key-space.

@@ -14,7 +14,8 @@ func testBackend(t *testing.T, b Backend) {
 		t.Errorf("got v == %q, want empty", v)
 	}
 
-	keys, err := b.List("dir")
+	// List (empty)
+	keys, err := b.List("dir", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +23,7 @@ func testBackend(t *testing.T, b Backend) {
 		t.Errorf("got keys == %v, want empty", keys)
 	}
 
+	// Set
 	wantV := "v"
 	err = b.Set("dir/key", wantV)
 	if err != nil {
@@ -36,14 +38,25 @@ func testBackend(t *testing.T, b Backend) {
 		t.Errorf("got v == %q, want %q", v, wantV)
 	}
 
-	keys, err = b.List("dir")
+	// Recursive list
+	keys, err = b.List("", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantKeys := []string{"key"}; !reflect.DeepEqual(keys, wantKeys) {
+	if wantKeys := []string{"dir", "dir/key"}; !reflect.DeepEqual(keys, wantKeys) {
 		t.Errorf("got keys == %v, want %v", keys, wantKeys)
 	}
 
+	// Non-recursive list
+	keys, err = b.List("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantKeys := []string{"dir"}; !reflect.DeepEqual(keys, wantKeys) {
+		t.Errorf("got keys == %v, want %v", keys, wantKeys)
+	}
+
+	// Delete
 	err = b.Delete("dir/key")
 	if err != nil {
 		t.Fatal(err)
@@ -52,9 +65,4 @@ func testBackend(t *testing.T, b Backend) {
 	if err != ErrKeyNotExist {
 		t.Error(err)
 	}
-}
-
-func TestInMemoryBackend(t *testing.T) {
-	b := NewInMemoryBackend(nil)
-	testBackend(t, b)
 }

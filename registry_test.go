@@ -3,37 +3,88 @@ package datad
 import (
 	"reflect"
 	"testing"
+
+	etcd_client "github.com/coreos/go-etcd/etcd"
 )
 
 func TestRegistry(t *testing.T) {
-	r := NewRegistry(NewInMemoryBackend(nil), "/")
+	withEtcd(t, func(ec *etcd_client.Client) {
+		b := NewEtcdBackend("/", ec)
+		r := NewRegistry(b)
 
-	pvs, err := r.ProviderVersions("k")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pvs) != 0 {
-		t.Errorf("got pvs == %v, want empty", pvs)
-	}
+		keys, err := r.KeysForNode("n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(keys) != 0 {
+			t.Errorf("got KeysForNode == %v, want empty", keys)
+		}
 
-	err = r.AddProvider("k", "p", "v")
-	if err != nil {
-		t.Fatal(err)
-	}
+		nodes, err := r.NodesForKey("k")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got NodesForKey == %v, want empty", nodes)
+		}
 
-	pvs, err = r.ProviderVersions("k")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := map[string]string{"p": "v"}; !reflect.DeepEqual(pvs, want) {
-		t.Errorf("got ProviderVersions == %v, want %v", pvs, want)
-	}
+		// Add some mappings.
+		err = r.Add("k", "n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = r.Add("l/m", "n")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	pv, err := r.ProviderVersion("k", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "v"; pv != want {
-		t.Errorf("got ProviderVersion == %q, want %q", pv, want)
-	}
+		// Test that the mappings are set.
+		keys, err = r.KeysForNode("n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"k", "l/m"}; !reflect.DeepEqual(keys, want) {
+			t.Errorf("got KeysForNode == %v, want %v", keys, want)
+		}
+
+		nodes, err = r.NodesForKey("k")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"n"}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+
+		nodes, err = r.NodesForKey("l/m")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"n"}; !reflect.DeepEqual(nodes, want) {
+			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
+		}
+
+		// Remove the mapping for l/m.
+		err = r.Remove("l/m", "n")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Test that the mapping was removed.
+
+		keys, err = r.KeysForNode("n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"k"}; !reflect.DeepEqual(keys, want) {
+			t.Errorf("got KeysForNode == %v, want %v", keys, want)
+		}
+
+		nodes, err = r.NodesForKey("l/m")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("got NodesForKey == %v, want empty", nodes)
+		}
+	})
 }

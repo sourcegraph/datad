@@ -15,3 +15,7 @@ of git and hg repository data (files, commits, branches, etc.).
 * **Registry:** two mappings: (1) for a given data key, a list of cluster nodes that have the underlying data on disk; and (2) for a given node, a list of data keys that it should fetch/compute and store on disk.
 * **Node:** a member of the cluster that hosts a subset of the data from its local data source, which it continuously synchronizes with the registry.
 * **Client:** a consumer of the data source that routes its requests for data to the nodes that are registered for any given data key.
+
+## TODO
+
+* Support keeping a list of data keys that must always be available.

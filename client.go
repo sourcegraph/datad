@@ -141,10 +141,6 @@ func (c *Client) TransportForKey(key string, underlying http.RoundTripper) (http
 // transportForkey is like TransportForKey but is optimized for callers who
 // already know the nodes that are registered to key.
 func (c *Client) transportForKey(key string, underlying http.RoundTripper, nodes []string) (http.RoundTripper, error) {
-	if len(nodes) == 0 {
-		return nil, ErrNoNodesForKey
-	}
-
 	if underlying == nil {
 		underlying = http.DefaultTransport
 	}

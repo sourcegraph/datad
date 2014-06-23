@@ -174,7 +174,7 @@ func (e *KeyTransportError) Error() string {
 		summary[i] = fmt.Sprintf("%s [node %s]", truncate(err.Error(), 75, "..."), node)
 		i++
 	}
-	return fmt.Sprintf("no nodes responded successfully for %q (%s)", e.URL, strings.Join(summary, "; "))
+	return fmt.Sprintf("no nodes responded successfully for %q (node errors: %s) (other error: %v)", e.URL, strings.Join(summary, "; "), e.OtherError)
 }
 
 // RoundTrip implements http.RoundTripper. If at least one node responds

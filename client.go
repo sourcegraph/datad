@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
+	"sync"
 )
 
 // A Client routes requests for data.
@@ -14,12 +18,15 @@ type Client struct {
 	backend Backend
 
 	registry *Registry
+
+	Log *log.Logger
 }
 
 func NewClient(b Backend) *Client {
 	return &Client{
 		backend:  b,
 		registry: NewRegistry(b),
+		Log:      log.New(os.Stderr, "datad client: ", log.Ltime|log.Lshortfile),
 	}
 }
 
@@ -40,19 +47,24 @@ func (c *Client) NodesForKey(key string) ([]string, error) {
 // it. If key is not registered to any nodes, a node is registered for it and
 // the key is created on that node.
 func (c *Client) Update(key string) (nodes []string, err error) {
-	return c.update(key, nil)
+	return c.update(key, nil, nil, nil)
 }
 
-// update is like Update, but takes a clusterNodes param to avoid requerying
-// ClusterNodes each time (for callers who call update many times in a short
-// period of time).
-func (c *Client) update(key string, clusterNodes []string) (nodes []string, err error) {
-	nodes, err = c.NodesForKey(key)
-	if err != nil {
-		return nil, err
+var ErrNoAvailableNodesForRegistration = errors.New("no available nodes to register key with")
+
+// update is like Update, but takes nodesForKey and clusterNodes params as an
+// optimization for callers who already know their values. Also, the key will
+// not be registered to any nodes in excludeNodes (if no other nodes are
+// available, an error is returned).
+func (c *Client) update(key string, nodesForKey []string, clusterNodes []string, excludeNodes map[string]struct{}) (nodes []string, err error) {
+	if nodesForKey == nil {
+		nodesForKey, err = c.NodesForKey(key)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if len(nodes) == 0 {
+	if len(nodesForKey) == 0 {
 		// Register a node for the key.
 		if clusterNodes == nil {
 			clusterNodes, err = c.NodesInCluster()
@@ -61,10 +73,25 @@ func (c *Client) update(key string, clusterNodes []string) (nodes []string, err 
 			}
 		}
 
+		// Exclude nodes.
+		if len(excludeNodes) > 0 {
+			var clusterNodes2 []string
+			for _, cnode := range clusterNodes {
+				if _, exclude := excludeNodes[cnode]; !exclude {
+					clusterNodes2 = append(clusterNodes2, cnode)
+				}
+			}
+			clusterNodes = clusterNodes2
+		}
+
+		if len(clusterNodes) == 0 {
+			return nil, ErrNoAvailableNodesForRegistration
+		}
+
 		// Try to choose the same node as other clients that might be calling Update on the same key concurrently.
 		regNode := clusterNodes[keyBucket(key, len(clusterNodes))]
 
-		Log.Printf("Key to update does not exist yet: %q; registering key to node %s (will trigger update).", key, regNode)
+		c.logf("Key to update does not exist yet: %q; registering key to node %s (will trigger update).", key, regNode)
 
 		// TODO(sqs): optimize this by only adding if not exists, and then
 		// seeing if it exists (to avoid potentially duplicating work).
@@ -77,8 +104,8 @@ func (c *Client) update(key string, clusterNodes []string) (nodes []string, err 
 		return []string{regNode}, nil
 	}
 
-	for i, node := range nodes {
-		Log.Printf("Triggering update of key %q on node %s (%d/%d)...", key, node, i+1, len(nodes))
+	for i, node := range nodesForKey {
+		c.logf("Triggering update of key %q on node %s (%d/%d)...", key, node, i+1, len(nodesForKey))
 		// Each node watches its list of registered keys, so just re-adding it
 		// to the registry will trigger an update.
 		err = c.registry.Add(key, node)
@@ -86,9 +113,9 @@ func (c *Client) update(key string, clusterNodes []string) (nodes []string, err 
 			return nil, err
 		}
 	}
-	Log.Printf("Finished triggering updates of key %q on %d nodes (%v).", key, len(nodes), nodes)
+	c.logf("Finished triggering updates of key %q on %d nodes (%v).", key, len(nodesForKey), nodesForKey)
 
-	return nodes, nil
+	return nodesForKey, nil
 }
 
 // TransportForKey returns a HTTP transport (http.RoundTripper) optimized for
@@ -114,7 +141,7 @@ func (c *Client) transportForKey(key string, underlying http.RoundTripper, nodes
 	if underlying == nil {
 		underlying = http.DefaultTransport
 	}
-	return &keyTransport{key, nodes, c, underlying}, nil
+	return &keyTransport{key: key, nodes: nodes, c: c, transport: underlying}, nil
 }
 
 type keyTransport struct {
@@ -122,9 +149,35 @@ type keyTransport struct {
 	nodes     []string
 	c         *Client
 	transport http.RoundTripper
+
+	// nodesMu synchronizes access to nodes.
+	nodesMu sync.Mutex
 }
 
-// RoundTrip implements http.RoundTripper.
+// KeyTransportError denotes that the key transport's RoundTrip failed. It
+// records the individual errors for each node it attempted to contact.
+type KeyTransportError struct {
+	URL        string
+	NodeErrors map[string]error
+
+	// OtherError is an error encountered while trying to register key with other nodes.
+	OtherError error
+}
+
+func (e *KeyTransportError) Error() string {
+	summary := make([]string, len(e.NodeErrors))
+	i := 0
+	for node, err := range e.NodeErrors {
+		summary[i] = fmt.Sprintf("%s [node %s]", truncate(err.Error(), 75, "..."), node)
+		i++
+	}
+	return fmt.Sprintf("no nodes responded successfully for %q (%s)", e.URL, strings.Join(summary, "; "))
+}
+
+// RoundTrip implements http.RoundTripper. If at least one node responds
+// successfully, no error is returned. If all nodes fail to respond
+// successfully, a *KeyTransportError is returned with the errors from each
+// node.
 func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone the request so we can modify the URL.
 	req2 := *req
@@ -140,7 +193,17 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req2.URL.Scheme = "http"
 	}
 
-	for i, node := range t.nodes {
+	t.nodesMu.Lock()
+	nodes := t.nodes
+	t.nodesMu.Unlock()
+
+	// Track failed nodes so we don't reregister this key to them.
+	failedNodes := make(map[string]struct{})
+
+	// Track the errors we saw from each node's response.
+	nodeErrors := make(map[string]error)
+
+	for i, node := range nodes {
 		// TODO(sqs): this code assumes the node is a "host:port".
 		req2.URL.Host = node
 
@@ -159,18 +222,44 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			err = &HTTPError{resp.StatusCode, string(bytes.TrimSpace(body))}
 		}
 
-		Log.Printf("Request for %q failed in keyTransport (%s); deregistering node %q from key.", req.URL, err, node)
+		// Remove this node from the registry and from t.nodes.
+		t.c.logf("Transport for key %q: HTTP request for %q failed (%s); deregistering node %q from key.", t.key, req.URL, err, node)
 		if err := t.c.registry.Remove(t.key, node); err != nil {
 			return nil, err
 		}
-		// TODO(sqs): remove node from t.nodes
+		t.nodesMu.Lock()
+		t.nodes = append(t.nodes[:i], t.nodes[i:]...)
+		t.nodesMu.Unlock()
 
-		if i == len(t.nodes)-1 {
-			// no more attempts remaining
-			return nil, err
-		}
+		failedNodes[node] = struct{}{}
+		nodeErrors[node] = err
 	}
-	panic("unreachable")
+
+	kte := &KeyTransportError{URL: req2.URL.String(), NodeErrors: nodeErrors}
+
+	// If we get here, then no nodes responded successfully.
+	t.c.logf("Transport for key %q: No nodes' data sources responded successfully to request for %q. Registering key to a new node and triggering an update.", t.key, req.URL)
+
+	// Register this key with a new node and trigger an update.
+	regNodes, err := t.c.update(t.key, []string{}, nil, failedNodes)
+	if err != nil {
+		kte.OtherError = err
+		return nil, kte
+	}
+
+	// Use the newly registered node(s) as the new destinations for this transport.
+	t.c.logf("Transport for key %q: Registered key to new nodes %v and triggered an update.", t.key, regNodes)
+	t.nodesMu.Lock()
+	t.nodes = regNodes
+	t.nodesMu.Unlock()
+
+	return nil, kte
+}
+
+func (c *Client) logf(format string, a ...interface{}) {
+	if c.Log != nil {
+		c.Log.Printf(format, a...)
+	}
 }
 
 type HTTPError struct {

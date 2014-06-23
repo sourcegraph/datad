@@ -23,5 +23,3 @@ of git and hg repository data (files, commits, branches, etc.).
 ## TODO
 
 * Support keeping a list of data keys that must always be available.
-* In the key transport, register the key to a new node when there's a failure.
-* In the balancer, when a key is orphaned, ensure that the newly registered node calls Update on the key so the data is populated.

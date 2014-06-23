@@ -8,18 +8,33 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
 )
 
-var NodeMembershipTTL = 5 * time.Second
+var (
+	// NodeMembershipTTL is the time-to-live of the etcd key that denotes a
+	// node's membership in the cluster.
+	NodeMembershipTTL = 5 * time.Second
+
+	// BalanceInterval is the time interval for starting a balancing job on the
+	// whole keyspace on each node.
+	BalanceInterval = time.Minute
+)
 
 // A Node ensures that the provider's keys are registered and coordinates
 // distribution of data among the other nodes in the cluster.
 type Node struct {
 	Name     string
 	Provider Provider
+
+	// Updaters is the maximum number of concurrent calls to Provider.Update
+	// that may be executing at any given time on this node.
+	Updaters  int
+	updateQ   chan string
+	updateQMu sync.Mutex
 
 	backend  Backend
 	registry *Registry
@@ -40,6 +55,8 @@ func NewNode(name string, b Backend, p Provider) *Node {
 	return &Node{
 		Name:     name,
 		Provider: p,
+		Updaters: 1,
+		updateQ:  make(chan string),
 		backend:  b,
 		registry: NewRegistry(b),
 		Log:      log.New(os.Stderr, "", log.Ltime|log.Lmicroseconds|log.Lshortfile),
@@ -79,6 +96,7 @@ func (n *Node) Start() error {
 
 	go n.watchRegisteredKeys()
 	go n.balancePeriodically()
+	go n.startUpdater()
 
 	return nil
 }
@@ -152,11 +170,8 @@ func (n *Node) watchRegisteredKeys() error {
 				key := strings.TrimPrefix(resp.Node.Key, fullKey+"/")
 				n.logf("Registry changed: %s on key %q.", resp.Action, key)
 				if !strings.Contains(strings.ToLower(resp.Action), "delete") {
-					n.logf("Updating key %q in data source (in response to registry %s).", key, resp.Action)
-					err := n.Provider.Update(key)
-					if err != nil {
-						n.logf("Error updating key %q in data source: %s.", key, err)
-					}
+					n.logf("Queueing update for key %q in data source (in response to registry %s).", key, resp.Action)
+					n.updateQ <- key
 				}
 			case <-n.stopChan:
 				n.logf("Stopping registry watcher.")
@@ -200,11 +215,67 @@ func (n *Node) registerExistingKeys() error {
 	return nil
 }
 
+func (n *Node) startUpdater() {
+	keyToUpdate := make(chan string)
+
+	// Use a map to avoid updating the same key concurrently. If a key's value
+	// is false, it's queued; if true, its update is in progress.
+	pending := make(map[string]bool)
+
+	started := make(chan string)
+	completed := make(chan string)
+
+	// Consume queue and distribute keys to updaters.
+	go func() {
+		for {
+			select {
+			case key := <-completed:
+				delete(pending, key)
+			case key := <-started:
+				pending[key] = true
+			case key := <-n.updateQ:
+				if _, isPending := pending[key]; !isPending {
+					pending[key] = false
+					go func() { keyToUpdate <- key }() // TODO(sqs): hacky
+					if len(pending) > n.Updaters {
+						n.logf("%d key updates pending: %v (false=queued, true=update in progress).", len(pending), pending)
+					}
+				}
+			case <-n.stopChan:
+				return
+			}
+		}
+	}()
+
+	if n.Updaters <= 0 {
+		panic("invalid Updaters value for node (Updaters <= 0)")
+	}
+
+	// Updaters.
+	for i := 0; i < n.Updaters; i++ {
+		go func() {
+			for {
+				select {
+				case key := <-keyToUpdate:
+					started <- key
+					err := n.Provider.Update(key)
+					if err != nil {
+						n.logf("Update failed for key %q: %s.", key, err)
+					}
+					completed <- key
+				case <-n.stopChan:
+					return
+				}
+			}
+		}()
+	}
+}
+
 // startBalancer starts a periodic process that balances the distribution of
 // keys to nodes.
 func (n *Node) balancePeriodically() {
 	// TODO(sqs): allow tweaking the balance interval
-	t := time.NewTicker(time.Minute)
+	t := time.NewTicker(BalanceInterval)
 	for {
 		select {
 		case <-t.C:
@@ -244,7 +315,18 @@ func (n *Node) balance() error {
 
 	n.logf("Balancer: starting on %d keys, with known cluster nodes %v.", len(keyMap), clusterNodes)
 	actions := 0
+	iterations := 0
 	for key, nodes := range keyMap {
+		if maxDuration := BalanceInterval / 2; time.Since(start) > maxDuration {
+			// Rough heuristic that the KeyMap is stale, so let's end this
+			// balance run. The next balance run won't have to redo the work we
+			// did.
+			n.logf("Balancer: ending before complete because max balance duration %s elapsed. Checked %d/%d entries in KeyMap, %d non-read ops. Will resume in next balance run.", maxDuration, iterations, len(keyMap), actions)
+			return nil
+		}
+
+		iterations++
+
 		if len(nodes) == 0 {
 			regNode := clusterNodes[keyBucket(key, len(clusterNodes))]
 
@@ -282,11 +364,8 @@ func (n *Node) balance() error {
 		if x == 0 {
 			for _, node := range nodes {
 				if node == n.Name {
-					n.logf("Balancer: updating key %q in data source on current node.", key)
-					err := n.Provider.Update(key)
-					if err != nil {
-						n.logf("Balancer: error updating key %q in data source on current node: %s. (Continuing to balance other keys.)", key, err)
-					}
+					n.logf("Balancer: queueing update for key %q in data source on current node.", key)
+					n.updateQ <- key
 					actions++
 				}
 			}

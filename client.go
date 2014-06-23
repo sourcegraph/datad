@@ -240,6 +240,10 @@ func (t *KeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	kte := &KeyTransportError{URL: req2.URL.String(), NodeErrors: nodeErrors}
 
+	if len(nodes) == 0 {
+		kte.OtherError = ErrNoNodesForKey
+	}
+
 	// If we get here, then no nodes responded successfully.
 	t.c.logf("Transport for key %q: No nodes' data sources responded successfully to request for %q. Registering key to a new node and triggering an update.", t.key, req.URL)
 

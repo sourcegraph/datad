@@ -222,17 +222,23 @@ func (n *Node) startUpdater() {
 	// is false, it's queued; if true, its update is in progress.
 	pending := make(map[string]bool)
 
-	started := make(chan string)
-	completed := make(chan string)
+	type keyStatus struct {
+		key       string
+		completed bool
+	}
+
+	status := make(chan keyStatus)
 
 	// Consume queue and distribute keys to updaters.
 	go func() {
 		for {
 			select {
-			case key := <-completed:
-				delete(pending, key)
-			case key := <-started:
-				pending[key] = true
+			case s := <-status:
+				if s.completed {
+					delete(pending, s.key)
+				} else {
+					pending[s.key] = true
+				}
 			case key := <-n.updateQ:
 				if _, isPending := pending[key]; !isPending {
 					pending[key] = false
@@ -257,12 +263,14 @@ func (n *Node) startUpdater() {
 			for {
 				select {
 				case key := <-keyToUpdate:
-					started <- key
+					status <- keyStatus{key, false}
 					err := n.Provider.Update(key)
-					if err != nil {
+					if err == nil {
+						n.logf("Update succeeded for key %q.", key)
+					} else {
 						n.logf("Update failed for key %q: %s.", key, err)
 					}
-					completed <- key
+					status <- keyStatus{key, true}
 				case <-n.stopChan:
 					return
 				}

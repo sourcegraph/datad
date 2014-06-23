@@ -136,16 +136,20 @@ func (n *Node) refreshClusterMembership() error {
 // (e.g., updates requested).
 func (n *Node) watchRegisteredKeys() error {
 	watchKey := keysForNodeDir(n.Name)
+	fullKey := n.backend.(*EtcdBackend).fullKey(watchKey)
 
-	recv := make(chan *etcd.Response)
-	stopWatch := make(chan bool)
+	recv := make(chan *etcd.Response, 10)
+	stopWatch := make(chan bool, 1)
 
 	// Receive watched changes.
 	go func() {
 		for {
 			select {
-			case resp := <-recv:
-				key := strings.TrimPrefix(resp.Node.Key, watchKey+"/")
+			case resp, ok := <-recv:
+				if !ok {
+					return
+				}
+				key := strings.TrimPrefix(resp.Node.Key, fullKey+"/")
 				n.logf("Registry changed: %s on key %q.", resp.Action, key)
 				if !strings.Contains(strings.ToLower(resp.Action), "delete") {
 					n.logf("Updating key %q in data source (in response to registry %s).", key, resp.Action)
@@ -162,7 +166,7 @@ func (n *Node) watchRegisteredKeys() error {
 		}
 	}()
 
-	_, err := n.backend.(*EtcdBackend).etcd.Watch(watchKey, 0, true, recv, stopWatch)
+	_, err := n.backend.(*EtcdBackend).etcd.Watch(fullKey, 0, true, recv, stopWatch)
 	if err != etcd.ErrWatchStoppedByUser {
 		return err
 	}

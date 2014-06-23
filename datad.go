@@ -15,7 +15,7 @@ const (
 )
 
 var (
-	Log = log.New(os.Stderr, "datad: ", log.Ltime|log.Lshortfile)
+	Log = log.New(os.Stderr, "datad: ", log.Ltime|log.Lmicroseconds|log.Lshortfile)
 )
 
 // slash adds a leading slash if path does not contain one.

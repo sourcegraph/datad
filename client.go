@@ -33,7 +33,7 @@ func NewClient(b Backend) *Client {
 	return &Client{
 		backend:  b,
 		registry: NewRegistry(b),
-		Log:      log.New(os.Stderr, "datad client: ", log.Ltime|log.Lshortfile),
+		Log:      log.New(os.Stderr, "datad client: ", log.Ltime|log.Lmicroseconds|log.Lshortfile),
 	}
 }
 

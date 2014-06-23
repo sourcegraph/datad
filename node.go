@@ -42,7 +42,7 @@ func NewNode(name string, b Backend, p Provider) *Node {
 		Provider: p,
 		backend:  b,
 		registry: NewRegistry(b),
-		Log:      log.New(os.Stderr, "", log.Ltime|log.Lshortfile),
+		Log:      log.New(os.Stderr, "", log.Ltime|log.Lmicroseconds|log.Lshortfile),
 		stopChan: make(chan struct{}),
 	}
 }

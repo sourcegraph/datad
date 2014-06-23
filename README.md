@@ -29,3 +29,4 @@ There are also good tests in [github.com/sourcegraph/vcsstore](https://github.co
 ## TODO
 
 * Support keeping a list of data keys that must always be available.
+* Allow more than provider update to run at the same time.

@@ -20,6 +20,12 @@ of git and hg repository data (files, commits, branches, etc.).
 * **Node:** a member of the cluster that hosts a subset of the data from its local data source, which it continuously synchronizes with the registry.
 * **Client:** a consumer of the data source that routes its requests for data to the nodes that are registered for any given data key.
 
+## Tests
+
+Run `go test`.
+
+There are also good tests in [github.com/sourcegraph/vcsstore](https://github.com/sourcegraph/vcsstore) in the `cluster` package.
+
 ## TODO
 
 * Support keeping a list of data keys that must always be available.

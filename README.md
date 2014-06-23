@@ -29,4 +29,4 @@ There are also good tests in [github.com/sourcegraph/vcsstore](https://github.co
 ## TODO
 
 * Support keeping a list of data keys that must always be available.
-* Allow more than provider update to run at the same time.
+* Allow nodes to indicate that they are in the process of fetching a piece of data for the first time. As it stands currently, if it takes (e.g.) 5s for the first fetch, and a client requests the key 2x before fetching finishes, then the first request will register the key to the node and the second request will deregister the key from the node (because the key transport notices the node failed to respond successfully). Because registration is done using (pseudo-) "consistent hashing", it usually gets registered to the same node on the next request, and by that time the node has the key, but this still causes unnecessary traffic and errors in the meantime.

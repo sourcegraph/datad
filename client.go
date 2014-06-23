@@ -267,7 +267,7 @@ func (t *KeyTransport) SyncWithRegistry() error {
 		return err
 	}
 
-	t.c.logf("Transport for key %q: Synced nodes with registry. New nodes: %v. Old nodes: %v.", nodes, t.nodes)
+	t.c.logf("Transport for key %q: Synced nodes with registry. New nodes: %v. Old nodes: %v.", t.key, nodes, t.nodes)
 	t.nodesMu.Lock()
 	t.nodes = nodes
 	t.nodesMu.Unlock()

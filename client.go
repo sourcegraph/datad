@@ -224,7 +224,7 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		// Remove this node from the registry and from t.nodes.
 		t.c.logf("Transport for key %q: HTTP request for %q failed (%s); deregistering node %q from key.", t.key, req.URL, err, node)
-		if err := t.c.registry.Remove(t.key, node); err != nil {
+		if err := t.c.registry.Remove(t.key, node); err != nil && !isEtcdKeyNotExist(err) {
 			return nil, err
 		}
 		t.nodesMu.Lock()

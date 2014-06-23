@@ -13,7 +13,7 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 )
 
-var NodeMembershipTTL = 30 * time.Second
+var NodeMembershipTTL = 5 * time.Second
 
 // A Node ensures that the provider's keys are registered and coordinates
 // distribution of data among the other nodes in the cluster.

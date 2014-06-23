@@ -224,7 +224,7 @@ func TestIntegration_DeregisterFailingDataSources(t *testing.T) {
 			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
 		}
 
-		// Test that the keyTransport will deregister "/key" from badN when it
+		// Test that the KeyTransport will deregister "/key" from badN when it
 		// notices that the HTTP request fails.
 		transport, err := c.TransportForKey("/key", nil)
 		if err != nil {
@@ -246,8 +246,8 @@ func TestIntegration_DeregisterFailingDataSources(t *testing.T) {
 	})
 }
 
-// Test that accessing a key using the keyTransport succeeds as long as any of
-// the nodes respond (i.e., keyTransport tries all nodes).
+// Test that accessing a key using the KeyTransport succeeds as long as any of
+// the nodes respond (i.e., KeyTransport tries all nodes).
 func TestIntegration_KeyTransportHandleUnreachableDataSources(t *testing.T) {
 	withEtcd(t, func(ec *etcd_client.Client) {
 		b := NewEtcdBackend("/", ec)
@@ -299,7 +299,7 @@ func TestIntegration_KeyTransportHandleUnreachableDataSources(t *testing.T) {
 			t.Errorf("got NodesForKey == %v, want %v", nodes, want)
 		}
 
-		// Test that the keyTransport will deregister "/key" from badN
+		// Test that the KeyTransport will deregister "/key" from badN
 		// when it notices that the HTTP request fails.
 		transport, err := c.TransportForKey("/key", nil)
 		if err != nil {

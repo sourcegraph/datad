@@ -129,7 +129,7 @@ func (c *Client) update(key string, nodesForKey []string, clusterNodes []string,
 // accessing the data specified by key.
 //
 // If key is not registered to any nodes, ErrNoNodesForKey is returned.
-func (c *Client) TransportForKey(key string, underlying http.RoundTripper) (http.RoundTripper, error) {
+func (c *Client) TransportForKey(key string, underlying http.RoundTripper) (*KeyTransport, error) {
 	nodes, err := c.NodesForKey(key)
 	if err != nil {
 		return nil, err
@@ -140,14 +140,14 @@ func (c *Client) TransportForKey(key string, underlying http.RoundTripper) (http
 
 // transportForkey is like TransportForKey but is optimized for callers who
 // already know the nodes that are registered to key.
-func (c *Client) transportForKey(key string, underlying http.RoundTripper, nodes []string) (http.RoundTripper, error) {
+func (c *Client) transportForKey(key string, underlying http.RoundTripper, nodes []string) (*KeyTransport, error) {
 	if underlying == nil {
 		underlying = http.DefaultTransport
 	}
-	return &keyTransport{key: key, nodes: nodes, c: c, transport: underlying}, nil
+	return &KeyTransport{key: key, nodes: nodes, c: c, transport: underlying}, nil
 }
 
-type keyTransport struct {
+type KeyTransport struct {
 	key       string
 	nodes     []string
 	c         *Client
@@ -181,7 +181,7 @@ func (e *KeyTransportError) Error() string {
 // successfully, no error is returned. If all nodes fail to respond
 // successfully, a *KeyTransportError is returned with the errors from each
 // node.
-func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *KeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone the request so we can modify the URL.
 	req2 := *req
 
@@ -257,6 +257,22 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.nodesMu.Unlock()
 
 	return nil, kte
+}
+
+// SyncWithRegistry updates the list of nodes that this transport attempts to
+// make HTTP requests to. The new nodes are looked up in the registry.
+func (t *KeyTransport) SyncWithRegistry() error {
+	nodes, err := t.c.NodesForKey(t.key)
+	if err != nil {
+		return err
+	}
+
+	t.c.logf("Transport for key %q: Synced nodes with registry. New nodes: %v. Old nodes: %v.", nodes, t.nodes)
+	t.nodesMu.Lock()
+	t.nodes = nodes
+	t.nodesMu.Unlock()
+
+	return nil
 }
 
 func (c *Client) logf(format string, a ...interface{}) {

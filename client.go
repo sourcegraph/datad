@@ -15,6 +15,13 @@ import (
 
 // A Client routes requests for data.
 type Client struct {
+	// KeyURLPrefix, if set, is prepended to all HTTP request URL paths using
+	// the transport from TransportForKey. It is useful when your keys refer to
+	// data hosted on a HTTP server at somewhere other than the root path. For
+	// example, if the datad key "/foo" refers to "http://example.com/api/foo",
+	// then KeyURLPrefix would be "/api/".
+	KeyURLPrefix string
+
 	backend Backend
 
 	registry *Registry
@@ -185,7 +192,7 @@ func (t *keyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Copy over everything important but the URL host (because we'll try different hosts).
 	req2.URL = &url.URL{
 		Scheme:   req.URL.Scheme,
-		Path:     req.URL.Path,
+		Path:     t.c.KeyURLPrefix + req.URL.Path,
 		RawQuery: req.URL.RawQuery,
 		Fragment: req.URL.Fragment,
 	}

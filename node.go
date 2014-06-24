@@ -88,11 +88,12 @@ func (n *Node) Start() error {
 		return err
 	}
 
-	err = n.registerExistingKeys()
-	if err != nil {
-		n.logf("Failed to register existing keys: %s", err)
-		return err
-	}
+	go func() {
+		err = n.registerExistingKeys()
+		if err != nil {
+			n.logf("Failed to register existing keys: %s", err)
+		}
+	}()
 
 	go n.watchRegisteredKeys()
 	go n.balancePeriodically()
@@ -194,6 +195,8 @@ func (n *Node) watchRegisteredKeys() error {
 // disk. Without this, the cluster would not know that this node's provider has
 // these keys.
 func (n *Node) registerExistingKeys() error {
+	n.logf("Finding existing keys to register... (this may take a while)")
+
 	keys, err := n.Provider.Keys("")
 	if err != nil {
 		return err

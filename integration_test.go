@@ -48,6 +48,10 @@ func TestIntegration_Simple(t *testing.T) {
 
 		// After calling n.Start(), the key should be routable (since it is
 		// persisted locally on the node).
+		err = n.registerExistingKeys()
+		if err != nil {
+			t.Fatal(err)
+		}
 		nodes, err = c.NodesForKey("/key")
 		if err != nil {
 			t.Fatal(err)
@@ -216,6 +220,10 @@ func TestIntegration_DeregisterFailingDataSources(t *testing.T) {
 		c := NewClient(b)
 
 		// Check that badN is registered for "/key".
+		err := badN.registerExistingKeys()
+		if err != nil {
+			t.Fatal(err)
+		}
 		nodes, err := c.NodesForKey("/key")
 		if err != nil {
 			t.Fatal(err)
@@ -291,6 +299,14 @@ func TestIntegration_KeyTransportHandleUnreachableDataSources(t *testing.T) {
 		c := NewClient(b)
 
 		// Check that both badN and goodN are registered for "/key".
+		err := badN.registerExistingKeys()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = goodN.registerExistingKeys()
+		if err != nil {
+			t.Fatal(err)
+		}
 		nodes, err := c.NodesForKey("/key")
 		if err != nil {
 			t.Fatal(err)

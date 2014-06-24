@@ -263,6 +263,12 @@ func (t *KeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return nil, kte
 }
 
+// CancelRequest is to allow a nonzero Timeout on the http.Client. TODO(sqs):
+// check this.
+func (t *KeyTransport) CancelRequest(req *http.Request) {
+	// no-op
+}
+
 // SyncWithRegistry updates the list of nodes that this transport attempts to
 // make HTTP requests to. The new nodes are looked up in the registry.
 func (t *KeyTransport) SyncWithRegistry() error {

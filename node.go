@@ -360,7 +360,9 @@ func (n *Node) balance() error {
 			if err != nil {
 				return err
 			}
-			resp, err := (&http.Client{Transport: t}).Get(slash(key))
+
+			hc := &http.Client{Transport: t, Timeout: 2 * time.Second}
+			resp, err := hc.Get(slash(key))
 			if err != nil {
 				actions++
 				n.logf("Balancer: liveness check failed for key %q on node %s: %s. Client deregistered key from node.", key, node, err)

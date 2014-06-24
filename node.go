@@ -17,11 +17,11 @@ import (
 var (
 	// NodeMembershipTTL is the time-to-live of the etcd key that denotes a
 	// node's membership in the cluster.
-	NodeMembershipTTL = 5 * time.Second
+	NodeMembershipTTL = 10 * time.Second
 
 	// BalanceInterval is the time interval for starting a balancing job on the
 	// whole keyspace on each node.
-	BalanceInterval = time.Minute
+	BalanceInterval = 5 * time.Minute
 )
 
 // A Node ensures that the provider's keys are registered and coordinates
@@ -119,11 +119,11 @@ func (n *Node) joinCluster() error {
 	}
 
 	if NodeMembershipTTL < time.Second {
-		panic("NodeMembershipTTL must be at least 1 second")
+		panic("NodeMembershipTTL must be at least 2 seconds")
 	}
 
 	go func() {
-		t := time.NewTicker(NodeMembershipTTL)
+		t := time.NewTicker(NodeMembershipTTL - 800*time.Millisecond)
 		for {
 			select {
 			case <-t.C:

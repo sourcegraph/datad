@@ -33,3 +33,4 @@ There are also good tests in [github.com/sourcegraph/vcsstore](https://github.co
 * Allow nodes to indicate they don't want more keys to be registered to them (e.g., when their disk is full).
 * Make the Provider.Keys method return keys as it finds them on disk, instead of waiting until it's found all of them.
 * When the provider is registering existing keys on disk, the watcher catches them and dupes an update. Just make the watcher not watch existing-registered keys.
+* Rebalances continue to reassign to dead nodes.
